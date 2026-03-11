@@ -1,0 +1,26 @@
+services:
+  dividend-select:
+    build: .
+    container_name: dividend-select
+    restart: unless-stopped
+    ports:
+      - "8092:8092"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config:/app/config
+    environment:
+      - LOG_LEVEL=INFO
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8092/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  app-network:
+    name: app-network
+    driver: bridge

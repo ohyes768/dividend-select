@@ -1,0 +1,85 @@
+# A股高股息率TOP50查询工具 - 配置文件
+
+# 市场筛选配置
+market:
+  # 包含的市场: sh_main(沪市主板), sz_main(深市主板)
+  include:
+    - sh_main
+    - sz_main
+  # 排除的市场: sh_star(科创板), sz_star(创业板), bse(北交所)
+  exclude:
+    - sh_star
+    - sz_star
+    - bse
+
+# 股票筛选配置
+filter:
+  # 排除ST股票
+  exclude_st: true
+  # 排除停牌股票
+  exclude_suspended: true
+  # 排除退市风险股票
+  exclude_delist_risk: true
+  # 最小市值（亿元），0表示不限制
+  min_market_cap: 0
+
+# 数据获取配置（性能优化）
+data_fetch:
+  # 是否获取详细信息（市值、行业、市盈率等）
+  fetch_detail_info: false
+  # 是否获取趋势数据
+  fetch_trend_data: false
+
+# 股息率计算配置
+dividend:
+  # 计算方式: latest_year(最新年度), ttm(近12个月)
+  calculation_method: latest_year
+  # 多次分红处理: cumulative(累计), latest(最近一次), annual(年度)
+  multiple_dividends: cumulative
+  # 是否使用后复权价格
+  use_adjusted_price: true
+  # 数据源: previous_close(前一日收盘), real_time(实时)
+  price_source: previous_close
+
+# 排名配置
+ranking:
+  # TOP数量
+  top_count: 50
+  # 排序字段: dividend_yield(股息率)
+  sort_by: dividend_yield
+  # 排序方向: desc(降序), asc(升序)
+  sort_order: desc
+
+# 趋势分析配置
+trend:
+  # 是否获取趋势数据（关闭可显著提升速度）
+  enabled: false
+  # 分析年数
+  years: 3
+  # 趋势符号
+  symbols:
+    up: "↗"
+    down: "↘"
+    flat: "→"
+
+# 网络请求配置
+network:
+  # 单次请求超时时间（秒）
+  timeout: 5
+  # 重试次数
+  retry_count: 3
+  # 重试间隔（秒）
+  retry_interval: 2
+  # 是否显示进度
+  show_progress: true
+
+# 输出配置
+output:
+  # 表格样式: simple, plain, grid, fancy_grid, pipe, orgtbl, jira, presto, pretty, psql
+  table_style: simple
+  # 是否显示元数据
+  show_metadata: true
+  # 缺失数据标记
+  missing_data_mark: "-"
+  # 最多显示的分红记录数
+  max_dividend_records: 10
