@@ -1,0 +1,36 @@
+# Python 编译缓存
+*.py[cod]
+*$py.class
+__pycache__/
+*.pyc
+
+# 虚拟环境
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 日志文件
+*.log
+logs/
+
+# 测试覆盖率
+.coverage
+.pytest_cache/
+htmlcov/
+
+# 构建产物
+dist/
+build/
+*.egg-info/
+
+# 操作系统
+.DS_Store
+Thumbs.db
