@@ -71,6 +71,37 @@ def _row_to_stock_model(row: pd.Series) -> DividendStock:
         float_val = _to_float(val)
         return int(float_val) if float_val is not None else None
 
+    def _has_quarter_data(quarter: str) -> bool:
+        """检查季度是否有数据"""
+        return _to_float(row.get(f"{quarter}平均价")) is not None
+
+    # 构建季度数据
+    quarterly = None
+    if any(_has_quarter_data(q) for q in ["2025Q1", "2025Q2", "2025Q3", "2025Q4"]):
+        from src.api.models import QuarterlyData, Quarter
+        quarterly = QuarterlyData(
+            q1=Quarter(
+                avg_price=_to_float(row.get("2025Q1平均价")),
+                dividend=_to_float(row.get("2025Q1分红(元/股)")),
+                yield_pct=_to_float(row.get("2025Q1股息率(%)")),
+            ) if _has_quarter_data("2025Q1") else None,
+            q2=Quarter(
+                avg_price=_to_float(row.get("2025Q2平均价")),
+                dividend=_to_float(row.get("2025Q2分红(元/股)")),
+                yield_pct=_to_float(row.get("2025Q2股息率(%)")),
+            ) if _has_quarter_data("2025Q2") else None,
+            q3=Quarter(
+                avg_price=_to_float(row.get("2025Q3平均价")),
+                dividend=_to_float(row.get("2025Q3分红(元/股)")),
+                yield_pct=_to_float(row.get("2025Q3股息率(%)")),
+            ) if _has_quarter_data("2025Q3") else None,
+            q4=Quarter(
+                avg_price=_to_float(row.get("2025Q4平均价")),
+                dividend=_to_float(row.get("2025Q4分红(元/股)")),
+                yield_pct=_to_float(row.get("2025Q4股息率(%)")),
+            ) if _has_quarter_data("2025Q4") else None,
+        )
+
     return DividendStock(
         code=str(row["股票代码"]).zfill(6),
         name=str(row["股票名称"]),
@@ -99,6 +130,7 @@ def _row_to_stock_model(row: pd.Series) -> DividendStock:
         low_price_2025=_to_float(row.get("2025年最低价")),
         high_change_pct_2025=_to_float(row.get("2025年最高涨幅(%)")),
         low_change_pct_2025=_to_float(row.get("2025年最低跌幅(%)")),
+        quarterly=quarterly,
     )
 
 
@@ -175,7 +207,7 @@ async def health():
     )
 
 
-@router.get("/api/stocks", response_model=StockListResponse)
+@router.get("/stocks", response_model=StockListResponse)
 async def get_stocks(
     min_yield: Optional[float] = Query(None, description="最小股息率(%)"),
     max_yield: Optional[float] = Query(None, description="最大股息率(%)"),
@@ -183,11 +215,9 @@ async def get_stocks(
     industry: Optional[str] = Query(None, description="行业筛选"),
     index: Optional[str] = Query(None, description="来源指数筛选"),
     sort_by: str = Query("avg_yield_3y", description="排序字段"),
-    sort_order: str = Query("desc", description="排序方向(asc/desc)"),
-    page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(50, ge=1, le=500, description="每页数量")
+    sort_order: str = Query("desc", description="排序方向(asc/desc)")
 ):
-    """获取股票列表（支持筛选、排序、分页）"""
+    """获取股票列表（支持筛选、排序，无分页）"""
     if data_reader is None or filter_service is None or sort_service is None:
         raise HTTPException(status_code=500, detail="服务未初始化")
 
@@ -203,24 +233,16 @@ async def get_stocks(
     # 排序
     df = sort_service.sort_by_field(df, sort_by, sort_order)
 
-    # 分页
-    total = len(df)
-    start = (page - 1) * page_size
-    end = start + page_size
-    page_df = df.iloc[start:end]
-
-    # 转换为模型
-    items = [_row_to_stock_model(row) for _, row in page_df.iterrows()]
+    # 无分页，返回所有数据
+    items = [_row_to_stock_model(row) for _, row in df.iterrows()]
 
     return StockListResponse(
-        total=total,
-        page=page,
-        page_size=page_size,
+        total=len(items),
         items=items
     )
 
 
-@router.get("/api/stocks/{code}", response_model=StockDetailResponse)
+@router.get("/stocks/{code}", response_model=StockDetailResponse)
 async def get_stock_detail(code: str):
     """获取股票详情（含季度数据）"""
     if data_reader is None:
@@ -239,7 +261,7 @@ async def get_stock_detail(code: str):
     )
 
 
-@router.get("/api/stats", response_model=StatsResponse)
+@router.get("/stats", response_model=StatsResponse)
 async def get_stats():
     """获取统计信息"""
     if data_reader is None:

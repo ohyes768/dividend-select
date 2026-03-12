@@ -10,6 +10,29 @@ from pydantic import BaseModel, Field
 # ========== 基础数据模型 ==========
 
 
+class QuarterlyData(BaseModel):
+    """
+    季度数据模型
+    """
+    q1: Optional["Quarter"] = Field(None, description="第一季度")
+    q2: Optional["Quarter"] = Field(None, description="第二季度")
+    q3: Optional["Quarter"] = Field(None, description="第三季度")
+    q4: Optional["Quarter"] = Field(None, description="第四季度")
+
+
+class Quarter(BaseModel):
+    """
+    单季度数据模型
+    """
+    avg_price: Optional[float] = Field(None, description="平均股价")
+    dividend: Optional[float] = Field(None, description="分红金额(元/股)")
+    yield_pct: Optional[float] = Field(None, description="股息率(%)")
+
+
+# 更新前向引用
+QuarterlyData.model_rebuild()
+
+
 class DividendStock(BaseModel):
     """
     股息率股票数据模型
@@ -53,31 +76,8 @@ class DividendStock(BaseModel):
     high_change_pct_2025: Optional[float] = Field(None, description="2025年最高涨幅(%)")
     low_change_pct_2025: Optional[float] = Field(None, description="2025年最低跌幅(%)")
 
-
-class QuarterlyData(BaseModel):
-    """
-    季度数据模型
-    """
-    q1: Optional["Quarter"] = Field(None, description="第一季度")
-    q2: Optional["Quarter"] = Field(None, description="第二季度")
-    q3: Optional["Quarter"] = Field(None, description="第三季度")
-    q4: Optional["Quarter"] = Field(None, description="第四季度")
-
-
-class Quarter(BaseModel):
-    """
-    单季度数据模型
-    """
-    avg_price: Optional[float] = Field(None, description="平均股价")
-    dividend: Optional[float] = Field(None, description="分红金额(元/股)")
-    yield_pct: Optional[float] = Field(None, alias="yield", description="股息率(%)")
-
-    class Config:
-        populate_by_name = True
-
-
-# 更新前向引用
-QuarterlyData.model_rebuild()
+    # 季度数据
+    quarterly: Optional[QuarterlyData] = Field(None, description="季度数据")
 
 
 # ========== 请求模型 ==========
@@ -103,11 +103,9 @@ class StockListQuery(BaseModel):
 
 class StockListResponse(BaseModel):
     """
-    股票列表响应模型
+    股票列表响应模型（无分页）
     """
     total: int = Field(..., description="总记录数")
-    page: int = Field(..., description="当前页码")
-    page_size: int = Field(..., description="每页数量")
     items: list[DividendStock] = Field(..., description="股票列表")
 
 

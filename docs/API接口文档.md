@@ -4,9 +4,16 @@
 
 本文档描述项目中所有对外暴露的 API 接口，包括类、方法和函数的调用规范。
 
-**文档版本**: v1.0
-**生成时间**: 2026-03-10
+**文档版本**: v1.1
+**生成时间**: 2026-03-12
 **状态**: 与代码实现同步
+
+## API 变更记录
+
+| 日期 | 版本 | 变更内容 |
+|------|------|----------|
+| 2026-03-12 | v1.1 | 新增 Web API 端点；数据模型新增季度数据；移除分页功能 |
+| 2026-03-10 | v1.0 | 初始版本 |
 
 ---
 
@@ -542,9 +549,254 @@ uv run python main.py --use-local --limit 3
 
 ---
 
-## 7. 数据源依赖
+## 7. Web API 端点 (src/api/)
 
-### 7.1 akshare API
+项目提供基于 FastAPI 的 Web API 服务，用于前端查询股息率数据。
+
+### 7.1 服务启动
+
+**启动方式**:
+```bash
+# 使用脚本启动
+./scripts/dev.sh
+
+# 或直接使用 uvicorn
+uv run uvicorn src.main:app --reload --port 8000
+```
+
+**API 基础路径**: `http://localhost:8000/api`
+
+### 7.2 端点列表
+
+#### 7.2.1 健康检查
+
+**端点**: `GET /api/health`
+
+**说明**: 检查 API 服务状态
+
+**响应**:
+```json
+{
+  "status": "ok",
+  "message": "Service is running"
+}
+```
+
+---
+
+#### 7.2.2 获取股票列表
+
+**端点**: `GET /api/stocks`
+
+**说明**: 获取股票列表（支持筛选、排序，无分页）
+
+**查询参数**:
+
+| 参数 | 类型 | 必填 | 说明 | 默认值 |
+|------|------|------|------|--------|
+| `min_yield` | float | 否 | 最小股息率(%) | - |
+| `max_yield` | float | 否 | 最大股息率(%) | - |
+| `exchange` | string | 否 | 交易所筛选 | - |
+| `industry` | string | 否 | 行业筛选 | - |
+| `index` | string | 否 | 来源指数筛选 | - |
+| `sort_by` | string | 否 | 排序字段 | `avg_yield_3y` |
+| `sort_order` | string | 否 | 排序方向(asc/desc) | `desc` |
+
+**排序字段选项**:
+- `avg_yield_3y` - 近3年平均股息率
+- `yield_2025` - 2025年股息率
+- `yield_2024` - 2024年股息率
+- `yield_2023` - 2023年股息率
+- `high_price_2025` - 2025年最高价
+- `low_price_2025` - 2025年最低价
+- `high_change_pct_2025` - 2025年最高涨幅(%)
+- `low_change_pct_2025` - 2025年最低跌幅(%)
+
+**响应**:
+```json
+{
+  "total": 150,
+  "items": [
+    {
+      "code": "600000",
+      "name": "浦发银行",
+      "exchange": "沪市主板",
+      "industry": "银行",
+      "source_index": "中证红利",
+      "avg_yield_3y": 6.5,
+      "yield_2025": 5.8,
+      "yield_2024": 6.2,
+      "yield_2023": 7.5,
+      "high_price_2025": 12.5,
+      "low_price_2025": 8.2,
+      "high_change_pct_2025": 15.2,
+      "low_change_pct_2025": -24.1,
+      "quarterly": {
+        "q1": {
+          "avg_price": 10.5,
+          "dividend": 0.32,
+          "yield_pct": 3.0
+        },
+        "q2": null,
+        "q3": null,
+        "q4": null
+      }
+    }
+  ]
+}
+```
+
+---
+
+#### 7.2.3 获取股票详情
+
+**端点**: `GET /api/stocks/{code}`
+
+**说明**: 获取单只股票详情（含季度数据）
+
+**路径参数**:
+- `code` - 股票代码（6位数字）
+
+**响应**:
+```json
+{
+  "code": "600000",
+  "name": "浦发银行",
+  "exchange": "沪市主板",
+  "industry": "银行",
+  "source_index": "中证红利",
+  "avg_yield_3y": 6.5,
+  "yield_2025": 5.8,
+  "yield_2024": 6.2,
+  "yield_2023": 7.5,
+  "high_price_2025": 12.5,
+  "low_price_2025": 8.2,
+  "high_change_pct_2025": 15.2,
+  "low_change_pct_2025": -24.1,
+  "quarterly": {
+    "q1": {
+      "avg_price": 10.5,
+      "dividend": 0.32,
+      "yield_pct": 3.0
+    },
+    "q2": {
+      "avg_price": 11.2,
+      "dividend": 0.31,
+      "yield_pct": 2.8
+    },
+    "q3": null,
+    "q4": null
+  }
+}
+```
+
+---
+
+#### 7.2.4 获取统计信息
+
+**端点**: `GET /api/stats`
+
+**说明**: 获取数据统计信息
+
+**响应**:
+```json
+{
+  "total_stocks": 150,
+  "avg_yield_3y": 4.2,
+  "median_yield_3y": 3.8,
+  "max_yield_3y": 8.5,
+  "min_yield_3y": 1.2,
+  "industry_distribution": {
+    "银行": 25,
+    "煤炭": 15,
+    "钢铁": 10,
+    "交通运输": 12
+  },
+  "index_distribution": {
+    "中证红利": 80,
+    "中证红利质量": 35,
+    "红利增长": 20,
+    "红利质量": 15
+  }
+}
+```
+
+---
+
+### 7.3 数据模型 (src/api/models.py)
+
+#### 7.3.1 DividendStock
+
+```python
+class DividendStock(BaseModel):
+    code: str                      # 股票代码
+    name: str                      # 股票名称
+    exchange: Optional[str]        # 交易所
+    industry: Optional[str]        # 行业
+    source_index: Optional[str]    # 来源指数
+    avg_yield_3y: Optional[float]  # 近3年平均股息率(%)
+    yield_2025: Optional[float]    # 2025年股息率(%)
+    yield_2024: Optional[float]    # 2024年股息率(%)
+    yield_2023: Optional[float]    # 2023年股息率(%)
+    high_price_2025: Optional[float]   # 2025年最高价
+    low_price_2025: Optional[float]    # 2025年最低价
+    high_change_pct_2025: Optional[float]   # 2025年最高涨幅(%)
+    low_change_pct_2025: Optional[float]    # 2025年最低跌幅(%)
+    quarterly: Optional[QuarterlyData]   # 季度数据
+```
+
+#### 7.3.2 QuarterlyData
+
+```python
+class QuarterlyData(BaseModel):
+    q1: Optional[Quarter]    # 第一季度
+    q2: Optional[Quarter]    # 第二季度
+    q3: Optional[Quarter]    # 第三季度
+    q4: Optional[Quarter]    # 第四季度
+```
+
+#### 7.3.3 Quarter
+
+```python
+class Quarter(BaseModel):
+    avg_price: Optional[float]   # 平均股价
+    dividend: Optional[float]    # 分红金额(元/股)
+    yield_pct: Optional[float]   # 股息率(%)
+```
+
+#### 7.3.4 StockListResponse
+
+```python
+class StockListResponse(BaseModel):
+    total: int                       # 总记录数
+    items: list[DividendStock]       # 股票列表
+```
+
+#### 7.3.5 StockDetailResponse
+
+```python
+class StockDetailResponse(BaseModel):
+    stock: DividendStock    # 股票详情
+```
+
+#### 7.3.6 StatsResponse
+
+```python
+class StatsResponse(BaseModel):
+    total_stocks: int                           # 股票总数
+    avg_yield_3y: Optional[float]               # 近3年平均股息率
+    median_yield_3y: Optional[float]            # 近3年中位数股息率
+    max_yield_3y: Optional[float]               # 近3年最大股息率
+    min_yield_3y: Optional[float]               # 近3年最小股息率
+    industry_distribution: dict[str, int]       # 行业分布
+    index_distribution: dict[str, int]          # 指数分布
+```
+
+---
+
+## 8. 数据源依赖
+
+### 8.1 akshare API
 
 | API | 用途 |
 |-----|------|
@@ -552,7 +804,7 @@ uv run python main.py --use-local --limit 3
 | `ak.stock_zh_a_hist()` | 获取股票历史价格（后复权） |
 | `ak.stock_history_dividend_detail()` | 获取股票分红明细 |
 
-### 7.2 efinance API
+### 8.2 efinance API
 
 | API | 用途 |
 |-----|------|
@@ -561,9 +813,9 @@ uv run python main.py --use-local --limit 3
 
 ---
 
-## 8. 输出文件
+## 9. 输出文件
 
-### 8.1 中间文件
+### 9.1 中间文件
 
 | 文件 | 说明 | 生成方式 |
 |------|------|----------|
@@ -572,7 +824,7 @@ uv run python main.py --use-local --limit 3
 | `个股板块映射.csv` | 股票概念板块和行业板块映射 | efinance API更新 |
 | `个股申万行业映射.csv` | 股票申万三级分类 | 外部提供 |
 
-### 8.2 最终输出
+### 9.2 最终输出
 
 | 文件 | 说明 |
 |------|------|
@@ -580,9 +832,9 @@ uv run python main.py --use-local --limit 3
 
 ---
 
-## 9. 错误处理
+## 10. 错误处理
 
-### 9.1 异常处理策略
+### 10.1 异常处理策略
 
 | 场景 | 处理策略 |
 |------|----------|
@@ -591,7 +843,7 @@ uv run python main.py --use-local --limit 3
 | 数据异常 | 使用默认值或标记为空 |
 | 文件不存在 | 使用本地数据或提示错误 |
 
-### 9.2 日志输出
+### 10.2 日志输出
 
 - 日志文件: `logs/dividend.log`
 - 日志级别: INFO

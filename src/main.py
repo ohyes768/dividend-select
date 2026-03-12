@@ -81,8 +81,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 注册路由
-app.include_router(router)
+# 注册路由（添加 /api 前缀）
+app.include_router(router, prefix='/api')
 
 
 if __name__ == "__main__":
