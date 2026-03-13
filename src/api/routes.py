@@ -343,7 +343,7 @@ async def get_m120_stocks(
     sort_order: str = Query("desc", description="排序方向(asc/desc)")
 ):
     """
-    批量获取筛选出来的股息率>3的股票的 M120 数值
+    批量获取筛选出来的股息率>3的股票的 M120 数据
 
     该接口每天刷新一次 M120 数据，适用于 n8n 定时调用。
 
@@ -352,6 +352,8 @@ async def get_m120_stocks(
     - 股票名称
     - 3年平均股息率
     - 120日均线（M120）
+    - 最新收盘价
+    - 收盘价与M120的偏离度(%)
     """
     if data_reader is None or sort_service is None or m120_service is None:
         raise HTTPException(status_code=500, detail="服务未初始化")
@@ -378,13 +380,15 @@ async def get_m120_stocks(
     for _, row in df.iterrows():
         code = str(row["股票代码"]).zfill(6)
         avg_yield = row.get("3年平均股息率(%)")
-        m120 = m120_data.get(code)
+        m120_info = m120_data.get(code, {})
 
         items.append(M120Stock(
             code=code,
             name=str(row["股票名称"]),
             avg_yield_3y=float(avg_yield) if pd.notna(avg_yield) else None,
-            m120=m120
+            m120=m120_info.get("m120"),
+            close=m120_info.get("close"),
+            deviation=m120_info.get("deviation"),
         ))
 
     # 获取 M120 文件最后修改时间

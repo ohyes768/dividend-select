@@ -169,12 +169,14 @@ class StockPEResponse(BaseModel):
 
 class M120Stock(BaseModel):
     """
-    M120 股票数据模型（仅包含必要字段）
+    M120 股票数据模型
     """
     code: str = Field(..., description="股票代码")
     name: str = Field(..., description="股票名称")
     avg_yield_3y: Optional[float] = Field(None, description="3年平均股息率(%)")
     m120: Optional[float] = Field(None, description="120日均线")
+    close: Optional[float] = Field(None, description="最新收盘价")
+    deviation: Optional[float] = Field(None, description="收盘价与M120的偏离度(%)")
 
 
 class M120ListResponse(BaseModel):

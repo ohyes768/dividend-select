@@ -4,7 +4,7 @@
 
 本文档描述项目中所有对外暴露的 API 接口，包括类、方法和函数的调用规范。
 
-**文档版本**: v1.3
+**文档版本**: v1.4
 **生成时间**: 2026-03-13
 **状态**: 与代码实现同步
 
@@ -12,6 +12,7 @@
 
 | 日期 | 版本 | 变更内容 |
 |------|------|----------|
+| 2026-03-13 | v1.4 | M120 接口新增收盘价和偏离度字段 |
 | 2026-03-13 | v1.3 | 新增 PE 数据获取 API 端点：获取股票市盈率、市净率等估值指标 |
 | 2026-03-13 | v1.2 | 新增 M120 API 端点：获取股息率>3的股票的120日均线数据 |
 | 2026-03-12 | v1.1 | 新增 Web API 端点；数据模型新增季度数据；移除分页功能 |
@@ -729,7 +730,7 @@ uv run uvicorn src.main:app --reload --port 8000
 
 **端点**: `GET /api/m120`
 
-**说明**: 批量获取股息率>3的股票的120日均线数据。适用于 n8n 定时调用。
+**说明**: 批量获取股息率>3的股票的120日均线数据，同时返回最新收盘价和偏离度。适用于 n8n 定时调用。
 
 **查询参数**:
 
@@ -748,12 +749,19 @@ uv run uvicorn src.main:app --reload --port 8000
       "code": "600000",
       "name": "浦发银行",
       "avg_yield_3y": 6.5,
-      "m120": 9.85
+      "m120": 9.85,
+      "close": 10.20,
+      "deviation": 3.55
     }
   ],
   "last_updated": "2026-03-13T10:30:00"
 }
 ```
+
+**字段说明**:
+- `m120`: 120日均线值
+- `close`: 最新收盘价
+- `deviation`: 收盘价与M120的偏离度(%)，计算公式：(close - m120) / m120 * 100
 
 ---
 
@@ -884,6 +892,8 @@ class M120Stock(BaseModel):
     name: str                      # 股票名称
     avg_yield_3y: Optional[float]  # 3年平均股息率(%)
     m120: Optional[float]          # 120日均线
+    close: Optional[float]         # 最新收盘价
+    deviation: Optional[float]     # 收盘价与M120的偏离度(%)
 ```
 
 #### 7.3.8 M120ListResponse
@@ -980,6 +990,78 @@ def get_pe_by_code(self, code: str, force_refresh: bool = False) -> Optional[pd.
 ```python
 def clear_cache(self)
 ```
+
+---
+
+### 8.2 M120Service - M120数据服务
+
+**位置**: `src/services/m120_service.py`
+
+#### 8.2.1 初始化
+
+```python
+def __init__(self)
+```
+
+**特性**:
+- 从 akshare 获取股票历史价格数据
+- 计算 120 日均线（MA120）
+- 获取最新收盘价并计算与 M120 的偏离度
+
+#### 8.2.2 计算单只股票M120数据
+
+```python
+def calculate_m120(self, code: str) -> Optional[dict]
+```
+
+**参数**:
+- `code` (str): 6位股票代码
+
+**返回**:
+- `dict` | `None`: 包含以下字段的字典
+  - `m120`: 120日均线值
+  - `close`: 最新收盘价
+  - `deviation`: 收盘价与M120的偏离度(%) = (close - m120) / m120 * 100
+
+#### 8.2.3 批量更新M120数据
+
+```python
+def update_m120_data(self, codes: list[str], show_progress: bool = True) -> int
+```
+
+**参数**:
+- `codes` (list[str]): 股票代码列表
+- `show_progress` (bool): 是否显示进度
+
+**返回**:
+- `int`: 成功更新的数量
+
+#### 8.2.4 读取M120数据
+
+```python
+def read_m120_data(self) -> dict[str, dict]
+```
+
+**返回**:
+- `dict[str, dict]`: {股票代码: {"m120": float, "close": float, "deviation": float}} 字典
+
+#### 8.2.5 获取文件修改时间
+
+```python
+def get_file_mtime(self) -> Optional[float]
+```
+
+**返回**:
+- `float` | `None`: Unix 时间戳，文件不存在返回 None
+
+#### 8.2.6 检查文件是否存在
+
+```python
+def check_file_exists(self) -> bool
+```
+
+**返回**:
+- `bool`: 文件是否存在
 
 ---
 
