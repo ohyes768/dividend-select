@@ -10,14 +10,20 @@ from fastapi import APIRouter, HTTPException, Query
 from src.api.models import (
     DividendStock,
     HealthResponse,
+    M120ListResponse,
+    M120Stock,
     QuarterlyData,
     Quarter,
     StatsResponse,
     StockDetailResponse,
     StockListResponse,
+    StockPEResponse,
+    StockPE,
 )
 from src.services.data_reader import DataReader
 from src.services.filter_service import FilterService
+from src.services.m120_service import M120Service
+from src.services.pe_service import PEDataService
 from src.services.sort_service import SortService
 from src.utils.logger import setup_logger
 
@@ -30,9 +36,17 @@ router = APIRouter()
 data_reader: DataReader | None = None
 filter_service: FilterService | None = None
 sort_service: SortService | None = None
+m120_service: M120Service | None = None
+pe_service: PEDataService | None = None
 
 
-def set_services(reader: DataReader, filterer: FilterService, sorter: SortService):
+def set_services(
+    reader: DataReader,
+    filterer: FilterService,
+    sorter: SortService,
+    m120: M120Service,
+    pe: PEDataService
+):
     """
     设置服务实例
 
@@ -40,11 +54,15 @@ def set_services(reader: DataReader, filterer: FilterService, sorter: SortServic
         reader: 数据读取服务
         filterer: 数据筛选服务
         sorter: 数据排序服务
+        m120: M120 服务
+        pe: PE 数据服务
     """
-    global data_reader, filter_service, sort_service
+    global data_reader, filter_service, sort_service, m120_service, pe_service
     data_reader = reader
     filter_service = filterer
     sort_service = sorter
+    m120_service = m120
+    pe_service = pe
 
 
 def _row_to_stock_model(row: pd.Series) -> DividendStock:
@@ -315,4 +333,180 @@ async def get_stats():
         industry_distribution=industry_distribution,
         index_distribution=index_distribution,
         csv_last_modified=csv_mtime
+    )
+
+
+@router.get("/m120", response_model=M120ListResponse)
+async def get_m120_stocks(
+    min_yield: float = Query(3.0, description="最小股息率(%)，默认3"),
+    sort_by: str = Query("avg_yield_3y", description="排序字段"),
+    sort_order: str = Query("desc", description="排序方向(asc/desc)")
+):
+    """
+    批量获取筛选出来的股息率>3的股票的 M120 数值
+
+    该接口每天刷新一次 M120 数据，适用于 n8n 定时调用。
+
+    返回数据：
+    - 股票代码
+    - 股票名称
+    - 3年平均股息率
+    - 120日均线（M120）
+    """
+    if data_reader is None or sort_service is None or m120_service is None:
+        raise HTTPException(status_code=500, detail="服务未初始化")
+
+    # 读取股息率数据
+    df = data_reader.read_csv()
+
+    # 筛选股息率 > 3
+    yield_col = "3年平均股息率(%)"
+    df["3年平均股息率(%)"] = pd.to_numeric(
+        df[yield_col].replace("-", None),
+        errors="coerce"
+    )
+    df = df[df["3年平均股息率(%)"] > min_yield]
+
+    # 读取 M120 数据
+    m120_data = m120_service.read_m120_data()
+
+    # 排序
+    df = sort_service.sort_by_field(df, sort_by, sort_order)
+
+    # 构建响应数据
+    items = []
+    for _, row in df.iterrows():
+        code = str(row["股票代码"]).zfill(6)
+        avg_yield = row.get("3年平均股息率(%)")
+        m120 = m120_data.get(code)
+
+        items.append(M120Stock(
+            code=code,
+            name=str(row["股票名称"]),
+            avg_yield_3y=float(avg_yield) if pd.notna(avg_yield) else None,
+            m120=m120
+        ))
+
+    # 获取 M120 文件最后修改时间
+    last_updated = None
+    if m120_service.check_file_exists():
+        timestamp = m120_service.get_file_mtime()
+        last_updated = datetime.fromtimestamp(timestamp).isoformat()
+
+    return M120ListResponse(
+        total=len(items),
+        items=items,
+        last_updated=last_updated
+    )
+
+
+@router.post("/m120/refresh")
+async def refresh_m120_data():
+    """
+    刷新 M120 数据
+
+    获取所有股息率 > 3 的股票的 120 日均线数据。
+    该接口耗时较长，建议在非高峰期调用。
+
+    返回：
+    - success: 是否成功
+    - message: 处理结果信息
+    - count: 更新的股票数量
+    """
+    if data_reader is None or m120_service is None:
+        raise HTTPException(status_code=500, detail="服务未初始化")
+
+    try:
+        # 读取股息率数据
+        df = data_reader.read_csv()
+
+        # 筛选股息率 > 3
+        yield_col = "3年平均股息率(%)"
+        df["3年平均股息率(%)"] = pd.to_numeric(
+            df[yield_col].replace("-", None),
+            errors="coerce"
+        )
+        df = df[df["3年平均股息率(%)"] > 3]
+
+        # 获取需要更新的股票代码列表
+        codes = df["股票代码"].astype(str).str.zfill(6).tolist()
+
+        logger.info(f"开始刷新 M120 数据，共 {len(codes)} 只股票")
+
+        # 更新 M120 数据
+        count = m120_service.update_m120_data(codes, show_progress=True)
+
+        return {
+            "success": True,
+            "message": f"M120 数据刷新完成，成功更新 {count} 只股票",
+            "count": count
+        }
+
+    except Exception as e:
+        logger.error(f"刷新 M120 数据失败: {e}")
+        raise HTTPException(status_code=500, detail=f"刷新失败: {str(e)}")
+
+
+# ========== PE 相关接口 ==========
+
+
+@router.get("/pe", response_model=StockPEResponse)
+async def get_pe_data(
+    code: Optional[str] = Query(None, description="股票代码（查询单只股票）"),
+    force_refresh: bool = Query(False, description="是否强制刷新缓存")
+):
+    """
+    获取股票 PE/PB 数据
+
+    不传 code 参数时返回所有股票的 PE 数据（使用缓存，1小时有效期）。
+    传入 code 参数时返回指定股票的 PE 数据。
+
+    返回数据：
+    - code: 股票代码
+    - name: 股票名称
+    - pe: 市盈率
+    - pb: 市净率
+    - market_cap: 总市值（万元）
+    - circulation_market_cap: 流通市值（万元）
+    """
+    if pe_service is None:
+        raise HTTPException(status_code=500, detail="服务未初始化")
+
+    if code:
+        # 查询单只股票
+        row = pe_service.get_pe_by_code(code, force_refresh=force_refresh)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"股票 {code} 的 PE 数据不存在")
+
+        items = [StockPE(
+            code=str(row["code"]),
+            name=str(row["name"]),
+            pe=float(row["pe"]) if pd.notna(row["pe"]) else None,
+            pb=float(row["pb"]) if pd.notna(row["pb"]) else None,
+            market_cap=float(row["market_cap"]) if pd.notna(row["market_cap"]) else None,
+            circulation_market_cap=float(row["circulation_market_cap"]) if pd.notna(row["circulation_market_cap"]) else None,
+        )]
+    else:
+        # 查询所有股票
+        df = pe_service.fetch_all_pe_data(force_refresh=force_refresh)
+
+        items = []
+        for _, row in df.iterrows():
+            items.append(StockPE(
+                code=str(row["code"]),
+                name=str(row["name"]),
+                pe=float(row["pe"]) if pd.notna(row["pe"]) else None,
+                pb=float(row["pb"]) if pd.notna(row["pb"]) else None,
+                market_cap=float(row["market_cap"]) if pd.notna(row["market_cap"]) else None,
+                circulation_market_cap=float(row["circulation_market_cap"]) if pd.notna(row["circulation_market_cap"]) else None,
+            ))
+
+    last_updated = None
+    if pe_service._cache_timestamp:
+        last_updated = datetime.fromtimestamp(pe_service._cache_timestamp).isoformat()
+
+    return StockPEResponse(
+        total=len(items),
+        items=items,
+        last_updated=last_updated
     )

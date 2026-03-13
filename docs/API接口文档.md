@@ -4,14 +4,16 @@
 
 本文档描述项目中所有对外暴露的 API 接口，包括类、方法和函数的调用规范。
 
-**文档版本**: v1.1
-**生成时间**: 2026-03-12
+**文档版本**: v1.3
+**生成时间**: 2026-03-13
 **状态**: 与代码实现同步
 
 ## API 变更记录
 
 | 日期 | 版本 | 变更内容 |
 |------|------|----------|
+| 2026-03-13 | v1.3 | 新增 PE 数据获取 API 端点：获取股票市盈率、市净率等估值指标 |
+| 2026-03-13 | v1.2 | 新增 M120 API 端点：获取股息率>3的股票的120日均线数据 |
 | 2026-03-12 | v1.1 | 新增 Web API 端点；数据模型新增季度数据；移除分页功能 |
 | 2026-03-10 | v1.0 | 初始版本 |
 
@@ -723,6 +725,88 @@ uv run uvicorn src.main:app --reload --port 8000
 
 ---
 
+#### 7.2.5 获取 M120 股票列表
+
+**端点**: `GET /api/m120`
+
+**说明**: 批量获取股息率>3的股票的120日均线数据。适用于 n8n 定时调用。
+
+**查询参数**:
+
+| 参数 | 类型 | 必填 | 说明 | 默认值 |
+|------|------|------|------|--------|
+| `min_yield` | float | 否 | 最小股息率(%) | 3.0 |
+| `sort_by` | string | 否 | 排序字段 | `avg_yield_3y` |
+| `sort_order` | string | 否 | 排序方向(asc/desc) | `desc` |
+
+**响应**:
+```json
+{
+  "total": 80,
+  "items": [
+    {
+      "code": "600000",
+      "name": "浦发银行",
+      "avg_yield_3y": 6.5,
+      "m120": 9.85
+    }
+  ],
+  "last_updated": "2026-03-13T10:30:00"
+}
+```
+
+---
+
+#### 7.2.6 刷新 M120 数据
+
+**端点**: `POST /api/m120/refresh`
+
+**说明**: 刷新所有股息率>3的股票的120日均线数据。该接口耗时较长，建议在非高峰期调用。
+
+**响应**:
+```json
+{
+  "success": true,
+  "message": "M120 数据刷新完成，成功更新 80 只股票",
+  "count": 80
+}
+```
+
+---
+
+#### 7.2.7 获取 PE 数据
+
+**端点**: `GET /api/pe`
+
+**说明**: 获取股票 PE/PB 数据。不传 code 参数时返回所有股票的 PE 数据（使用缓存，1小时有效期）；传入 code 参数时返回指定股票的 PE 数据。
+
+**查询参数**:
+
+| 参数 | 类型 | 必填 | 说明 | 默认值 |
+|------|------|------|------|--------|
+| `code` | string | 否 | 股票代码（查询单只股票） | - |
+| `force_refresh` | boolean | 否 | 是否强制刷新缓存 | false |
+
+**响应**:
+```json
+{
+  "total": 5000,
+  "items": [
+    {
+      "code": "600000",
+      "name": "浦发银行",
+      "pe": 5.2,
+      "pb": 0.6,
+      "market_cap": 2500000.0,
+      "circulation_market_cap": 2450000.0
+    }
+  ],
+  "last_updated": "2026-03-13T10:30:00"
+}
+```
+
+---
+
 ### 7.3 数据模型 (src/api/models.py)
 
 #### 7.3.1 DividendStock
@@ -792,19 +876,125 @@ class StatsResponse(BaseModel):
     index_distribution: dict[str, int]          # 指数分布
 ```
 
+#### 7.3.7 M120Stock
+
+```python
+class M120Stock(BaseModel):
+    code: str                      # 股票代码
+    name: str                      # 股票名称
+    avg_yield_3y: Optional[float]  # 3年平均股息率(%)
+    m120: Optional[float]          # 120日均线
+```
+
+#### 7.3.8 M120ListResponse
+
+```python
+class M120ListResponse(BaseModel):
+    total: int                       # 总记录数
+    items: list[M120Stock]           # 股票列表
+    last_updated: Optional[str]      # 数据最后更新时间
+```
+
+#### 7.3.9 StockPE
+
+```python
+class StockPE(BaseModel):
+    code: str                          # 股票代码
+    name: str                          # 股票名称
+    pe: Optional[float]                # 市盈率(PE)
+    pb: Optional[float]                # 市净率(PB)
+    market_cap: Optional[float]        # 总市值(万元)
+    circulation_market_cap: Optional[float]  # 流通市值(万元)
+```
+
+#### 7.3.10 StockPEResponse
+
+```python
+class StockPEResponse(BaseModel):
+    total: int                       # 总记录数
+    items: list[StockPE]             # 股票PE列表
+    last_updated: Optional[str]      # 数据最后更新时间
+```
+
 ---
 
-## 8. 数据源依赖
+## 8. 服务模块 (src/services/)
 
-### 8.1 akshare API
+### 8.1 PEDataService - PE数据服务
+
+**位置**: `src/services/pe_service.py`
+
+#### 8.1.1 初始化
+
+```python
+def __init__(self)
+```
+
+**特性**:
+- 内置1小时缓存机制
+- 自动从 akshare 获取全市场 PE/PB 数据
+
+#### 8.1.2 获取所有PE数据
+
+```python
+def fetch_all_pe_data(self, force_refresh: bool = False) -> pd.DataFrame
+```
+
+**参数**:
+- `force_refresh` (bool): 是否强制刷新缓存
+
+**返回**:
+- `pd.DataFrame`: 包含以下列的 DataFrame
+  - `code`: 股票代码
+  - `name`: 股票名称
+  - `pe`: 市盈率
+  - `pb`: 市净率
+  - `market_cap`: 总市值(万元)
+  - `circulation_market_cap`: 流通市值(万元)
+
+#### 8.1.3 根据代码列表获取PE数据
+
+```python
+def get_pe_by_codes(self, codes: list[str], force_refresh: bool = False) -> pd.DataFrame
+```
+
+**参数**:
+- `codes` (list[str]): 股票代码列表
+- `force_refresh` (bool): 是否强制刷新缓存
+
+#### 8.1.4 获取单只股票PE数据
+
+```python
+def get_pe_by_code(self, code: str, force_refresh: bool = False) -> Optional[pd.Series]
+```
+
+**参数**:
+- `code` (str): 股票代码
+- `force_refresh` (bool): 是否强制刷新缓存
+
+**返回**:
+- `pd.Series` | `None`: 股票PE数据 Series
+
+#### 8.1.5 清除缓存
+
+```python
+def clear_cache(self)
+```
+
+---
+
+## 9. 数据源依赖
+
+### 9.1 akshare API
 
 | API | 用途 |
 |-----|------|
 | `ak.index_stock_cons_weight_csindex()` | 获取中证指数成分股 |
 | `ak.stock_zh_a_hist()` | 获取股票历史价格（后复权） |
 | `ak.stock_history_dividend_detail()` | 获取股票分红明细 |
+| `ak.stock_zh_a_spot_em()` | 获取A股实时行情（PE/PB等估值指标） |
 
-### 8.2 efinance API
+### 9.2 efinance API
 
 | API | 用途 |
 |-----|------|
@@ -813,9 +1003,9 @@ class StatsResponse(BaseModel):
 
 ---
 
-## 9. 输出文件
+## 10. 输出文件
 
-### 9.1 中间文件
+### 10.1 中间文件
 
 | 文件 | 说明 | 生成方式 |
 |------|------|----------|
@@ -824,17 +1014,18 @@ class StatsResponse(BaseModel):
 | `个股板块映射.csv` | 股票概念板块和行业板块映射 | efinance API更新 |
 | `个股申万行业映射.csv` | 股票申万三级分类 | 外部提供 |
 
-### 9.2 最终输出
+### 10.2 最终输出
 
 | 文件 | 说明 |
 |------|------|
 | `近3年股息率汇总.csv` | 完整的分析结果（增量写入） |
+| `M120数据.csv` | 股息率>3的股票的120日均线数据（由 API 刷新） |
 
 ---
 
-## 10. 错误处理
+## 11. 错误处理
 
-### 10.1 异常处理策略
+### 11.1 异常处理策略
 
 | 场景 | 处理策略 |
 |------|----------|
@@ -843,9 +1034,9 @@ class StatsResponse(BaseModel):
 | 数据异常 | 使用默认值或标记为空 |
 | 文件不存在 | 使用本地数据或提示错误 |
 
-### 10.2 日志输出
+### 11.2 日志输出
 
-- 日志文件: `logs/dividend.log`
+- 日志文件: `logs/server.log`
 - 日志级别: INFO
 - 同时输出到控制台和文件
 

@@ -16,6 +16,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api.routes import router, set_services
 from src.services.data_reader import DataReader
 from src.services.filter_service import FilterService
+from src.services.m120_service import M120Service
+from src.services.pe_service import PEDataService
 from src.services.sort_service import SortService
 from src.utils.config import AppConfig
 from src.utils.logger import setup_logger
@@ -47,9 +49,11 @@ async def lifespan(app: FastAPI):
     data_reader = DataReader()
     filter_service = FilterService()
     sort_service = SortService()
+    m120_service = M120Service()
+    pe_service = PEDataService()
 
     # 设置服务到路由
-    set_services(data_reader, filter_service, sort_service)
+    set_services(data_reader, filter_service, sort_service, m120_service, pe_service)
 
     # 检查数据文件
     if data_reader.check_csv_exists():
@@ -57,6 +61,13 @@ async def lifespan(app: FastAPI):
         logger.info(f"数据文件加载成功，共 {total} 条记录")
     else:
         logger.warning(f"数据文件不存在: {AppConfig.get_csv_file()}")
+
+    # 检查 M120 数据文件
+    if m120_service.check_file_exists():
+        m120_count = len(m120_service.read_m120_data())
+        logger.info(f"M120 数据文件加载成功，共 {m120_count} 条记录")
+    else:
+        logger.info("M120 数据文件不存在，请调用 POST /api/m120/refresh 接口刷新数据")
 
     yield
 

@@ -138,3 +138,49 @@ class HealthResponse(BaseModel):
     version: str = Field(..., description="服务版本")
     csv_exists: bool = Field(..., description="CSV文件是否存在")
     total_records: int = Field(..., description="总记录数")
+
+
+# ========== PE 相关模型 ==========
+
+
+class StockPE(BaseModel):
+    """
+    股票PE数据模型
+    """
+    code: str = Field(..., description="股票代码")
+    name: str = Field(..., description="股票名称")
+    pe: Optional[float] = Field(None, description="市盈率(PE)")
+    pb: Optional[float] = Field(None, description="市净率(PB)")
+    market_cap: Optional[float] = Field(None, description="总市值(万元)")
+    circulation_market_cap: Optional[float] = Field(None, description="流通市值(万元)")
+
+
+class StockPEResponse(BaseModel):
+    """
+    股票PE数据响应模型
+    """
+    total: int = Field(..., description="总记录数")
+    items: list[StockPE] = Field(..., description="股票PE列表")
+    last_updated: Optional[str] = Field(None, description="数据最后更新时间")
+
+
+# ========== M120 相关模型 ==========
+
+
+class M120Stock(BaseModel):
+    """
+    M120 股票数据模型（仅包含必要字段）
+    """
+    code: str = Field(..., description="股票代码")
+    name: str = Field(..., description="股票名称")
+    avg_yield_3y: Optional[float] = Field(None, description="3年平均股息率(%)")
+    m120: Optional[float] = Field(None, description="120日均线")
+
+
+class M120ListResponse(BaseModel):
+    """
+    M120 股票列表响应模型
+    """
+    total: int = Field(..., description="总记录数")
+    items: list[M120Stock] = Field(..., description="股票列表")
+    last_updated: Optional[str] = Field(None, description="数据最后更新时间")
