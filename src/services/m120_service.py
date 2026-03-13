@@ -23,8 +23,9 @@ class M120Service:
     功能：
     1. 从 akshare 获取股票历史价格数据
     2. 计算 120 日均线（MA120）
-    3. 将 M120 数据存储到 CSV 文件
-    4. 读取已存储的 M120 数据
+    3. 获取最新收盘价并计算与 M120 的偏离度
+    4. 将 M120 数据存储到 CSV 文件
+    5. 读取已存储的 M120 数据
     """
 
     # M120 数据文件路径
@@ -58,15 +59,19 @@ class M120Service:
         else:
             raise ValueError(f"不支持的股票代码: {code}")
 
-    def calculate_m120(self, code: str) -> Optional[float]:
+    def calculate_m120(self, code: str) -> Optional[dict]:
         """
-        计算单只股票的 120 日均线
+        计算单只股票的 120 日均线、最新收盘价和偏离度
 
         Args:
             code: 6位股票代码
 
         Returns:
-            120日均线值，失败返回 None
+            包含以下字段的字典：
+            - m120: 120日均线值
+            - close: 最新收盘价
+            - deviation: 收盘价与M120的偏离度(%) = (close - m120) / m120 * 100
+            失败返回 None
         """
         try:
             full_code = self._get_stock_code_with_prefix(code)
@@ -87,8 +92,23 @@ class M120Service:
             closes = df["收盘"].tail(120)
             m120 = closes.mean()
 
-            logger.debug(f"股票 {code} M120: {m120:.2f}")
-            return round(m120, 2)
+            # 获取最新收盘价（最后一行）
+            latest_close = df.iloc[-1]["收盘"]
+
+            # 计算偏离度
+            deviation = (latest_close - m120) / m120 * 100
+
+            result = {
+                "m120": round(m120, 2),
+                "close": round(latest_close, 2),
+                "deviation": round(deviation, 2),
+            }
+
+            logger.debug(
+                f"股票 {code} M120: {m120:.2f}, 收盘价: {latest_close:.2f}, "
+                f"偏离度: {deviation:.2f}%"
+            )
+            return result
 
         except Exception as e:
             logger.error(f"计算股票 {code} M120 失败: {e}")
@@ -112,9 +132,14 @@ class M120Service:
             if show_progress and i % 10 == 0:
                 logger.info(f"进度: {i}/{total}")
 
-            m120 = self.calculate_m120(code)
-            if m120 is not None:
-                results.append({"股票代码": code, "M120": m120})
+            m120_data = self.calculate_m120(code)
+            if m120_data is not None:
+                results.append({
+                    "股票代码": code,
+                    "M120": m120_data["m120"],
+                    "收盘价": m120_data["close"],
+                    "偏离度": m120_data["deviation"],
+                })
 
             # 避免请求过快
             if i < total:
@@ -129,12 +154,12 @@ class M120Service:
 
         return len(results)
 
-    def read_m120_data(self) -> dict[str, float]:
+    def read_m120_data(self) -> dict[str, dict]:
         """
         读取 M120 数据
 
         Returns:
-            {股票代码: M120值} 字典
+            {股票代码: {"m120": float, "close": float, "deviation": float}} 字典
         """
         if not self.M120_CSV_FILE.exists():
             logger.warning(f"M120 数据文件不存在: {self.M120_CSV_FILE}")
@@ -142,7 +167,15 @@ class M120Service:
 
         try:
             df = pd.read_csv(self.M120_CSV_FILE, encoding="utf-8-sig")
-            return dict(zip(df["股票代码"].astype(str), df["M120"]))
+            result = {}
+            for _, row in df.iterrows():
+                code = str(row["股票代码"]).zfill(6)
+                result[code] = {
+                    "m120": row["M120"],
+                    "close": row["收盘价"],
+                    "deviation": row["偏离度"],
+                }
+            return result
         except Exception as e:
             logger.error(f"读取 M120 数据失败: {e}")
             return {}
