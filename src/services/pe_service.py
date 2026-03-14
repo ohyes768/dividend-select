@@ -11,6 +11,7 @@ import pandas as pd
 
 from src.utils.config import PROJECT_ROOT
 from src.utils.logger import setup_logger
+from src.utils.helpers import get_date_path, get_current_date_dir
 
 logger = setup_logger(__name__)
 
@@ -25,14 +26,24 @@ class PEDataService:
     3. 读取已存储的 PE/PB 数据
     """
 
-    # PE 数据文件路径
-    PE_CSV_FILE = PROJECT_ROOT / "data" / "PE数据.csv"
+    # PE 数据文件路径（使用日期目录）
+    PE_CSV_FILE = None  # 将在运行时设置
 
-    def __init__(self):
+    def __init__(self, date_str: str | None = None):
+        """
+        初始化 PE 服务
+
+        Args:
+            date_str: 日期字符串（YYYY-MM格式），None则使用当前日期
+        """
+        self.date_str = date_str
         self._ensure_data_dir()
 
     def _ensure_data_dir(self) -> None:
         """确保数据目录存在"""
+        if self.PE_CSV_FILE is None:
+            date_str = self.date_str if self.date_str else get_current_date_dir()
+            self.PE_CSV_FILE = get_date_path("PE数据.csv", date_str)
         self.PE_CSV_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     def update_pe_data(self, codes: list[str] | None = None, show_progress: bool = True) -> int:
@@ -56,6 +67,10 @@ class PEDataService:
 
             # 提取需要的列
             result_df = pd.DataFrame()
+
+            # 获取日期列值
+            date_value = self.date_str if self.date_str else get_current_date_dir()
+            result_df["日期"] = date_value
 
             # 获取股票代码和名称
             result_df["股票代码"] = df["代码"].str.zfill(6)
@@ -109,6 +124,10 @@ class PEDataService:
         Returns:
             {股票代码: {"pe": float, "pb": float, "market_cap": float, "circulation_market_cap": float}} 字典
         """
+        # 确保文件路径已初始化
+        if self.PE_CSV_FILE is None:
+            self._ensure_data_dir()
+
         if not self.PE_CSV_FILE.exists():
             logger.warning(f"PE 数据文件不存在: {self.PE_CSV_FILE}")
             return {}
@@ -248,6 +267,9 @@ class PEDataService:
         Returns:
             文件是否存在
         """
+        # 确保文件路径已初始化
+        if self.PE_CSV_FILE is None:
+            self._ensure_data_dir()
         return self.PE_CSV_FILE.exists()
 
 

@@ -12,6 +12,7 @@ from pydantic import validate_call
 
 from src.utils.config import AppConfig, PROJECT_ROOT
 from src.utils.logger import setup_logger
+from src.utils.helpers import get_date_path
 
 logger = setup_logger(__name__)
 
@@ -28,16 +29,26 @@ class M120Service:
     5. 读取已存储的 M120 数据
     """
 
-    # M120 数据文件路径
-    M120_CSV_FILE = PROJECT_ROOT / "data" / "M120数据.csv"
+    # M120 数据文件路径（使用日期目录）
+    M120_CSV_FILE = None  # 将在运行时设置
 
     @validate_call
-    def __init__(self):
-        """初始化 M120 服务"""
+    def __init__(self, date_str: str | None = None):
+        """
+        初始化 M120 服务
+
+        Args:
+            date_str: 日期字符串（YYYY-MM格式），None则使用当前日期
+        """
+        self.date_str = date_str
         self._ensure_data_dir()
 
     def _ensure_data_dir(self) -> None:
         """确保数据目录存在"""
+        if self.M120_CSV_FILE is None:
+            from src.utils.helpers import get_current_date_dir, get_filename_with_date_suffix
+            date_str = self.date_str if self.date_str else get_current_date_dir()
+            self.M120_CSV_FILE = get_date_path("M120数据.csv", date_str)
         self.M120_CSV_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     def _get_stock_code_with_prefix(self, code: str) -> str:
@@ -125,6 +136,10 @@ class M120Service:
         results = []
         total = len(codes)
 
+        # 获取日期列值
+        from src.utils.helpers import get_current_date_dir
+        date_value = self.date_str if self.date_str else get_current_date_dir()
+
         for i, code in enumerate(codes, 1):
             if show_progress and i % 10 == 0:
                 logger.info(f"进度: {i}/{total}")
@@ -132,6 +147,7 @@ class M120Service:
             m120_data = self.calculate_m120(code)
             if m120_data is not None:
                 results.append({
+                    "日期": date_value,
                     "股票代码": code,
                     "M120": m120_data["m120"],
                     "收盘价": m120_data["close"],
@@ -158,6 +174,10 @@ class M120Service:
         Returns:
             {股票代码: {"m120": float, "close": float, "deviation": float}} 字典
         """
+        # 确保文件路径已初始化
+        if self.M120_CSV_FILE is None:
+            self._ensure_data_dir()
+
         if not self.M120_CSV_FILE.exists():
             logger.warning(f"M120 数据文件不存在: {self.M120_CSV_FILE}")
             return {}
@@ -195,4 +215,7 @@ class M120Service:
         Returns:
             文件是否存在
         """
+        # 确保文件路径已初始化
+        if self.M120_CSV_FILE is None:
+            self._ensure_data_dir()
         return self.M120_CSV_FILE.exists()

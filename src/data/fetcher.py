@@ -124,9 +124,12 @@ class IndexHoldingsFetcher:
             历史累计分红次数
         """
         try:
-            df = ak.stock_history_dividend(symbol=stock_code)
+            df = ak.stock_history_dividend()
             if df is not None and not df.empty:
-                return len(df)
+                # 查找指定股票
+                stock_data = df[df["代码"] == stock_code]
+                if not stock_data.empty:
+                    return int(stock_data.iloc[0]["分红次数"])
         except Exception:
             pass
         return 0
@@ -142,34 +145,66 @@ class IndexHoldingsFetcher:
             {股票代码: 分红次数}
         """
         result = {}
-        total = len(stock_list)
 
-        for i, code in enumerate(stock_list):
-            count = self.fetch_dividend_count(code)
-            result[code] = count
+        try:
+            # 批量获取整个市场的分红数据
+            logger.info("  正在获取市场分红数据...")
+            df = ak.stock_history_dividend()
 
-            if (i + 1) % 10 == 0:
-                logger.info(f"  分红次数获取进度: {i + 1}/{total}")
+            if df is None or df.empty:
+                logger.error("  获取分红数据失败")
+                return result
 
-            time.sleep(0.3)  # 避免请求过快
+            # 将股票代码转换为6位字符串格式
+            df["代码"] = df["代码"].apply(lambda x: str(x).zfill(6))
+
+            # 筛选出持仓股票的分红数据
+            stock_codes_formatted = [str(c).zfill(6) for c in stock_list]
+            filtered_df = df[df["代码"].isin(stock_codes_formatted)]
+
+            # 构建结果字典
+            for _, row in filtered_df.iterrows():
+                code = row["代码"]
+                result[code] = int(row["分红次数"])
+
+            logger.info(f"  成功获取 {len(result)} 只股票的分红次数")
+
+        except Exception as e:
+            logger.error(f"  获取分红数据失败: {e}")
+            # 失败时逐个获取
+            total = len(stock_list)
+            for i, code in enumerate(stock_list):
+                count = self.fetch_dividend_count(code)
+                result[code] = count
+
+                if (i + 1) % 10 == 0:
+                    logger.info(f"  分红次数获取进度: {i + 1}/{total}")
+
+                time.sleep(0.3)  # 避免请求过快
 
         return result
 
-    def get_stock_list(self, min_dividend_count: int = 5) -> list[StockBasicInfo]:
+    def get_stock_list(self, min_dividend_count: int = 5, date_str: str | None = None) -> list[StockBasicInfo]:
         """
         获取筛选后的股票列表
 
         Args:
             min_dividend_count: 最小分红次数阈值
+            date_str: 日期字符串（YYYY-MM格式），None则使用当前月份
 
         Returns:
             筛选后的股票基本信息列表
         """
+        from ..utils.helpers import get_current_date_dir
+
+        if date_str is None:
+            date_str = get_current_date_dir()
+
         # Step 1: 获取持仓数据
         if self.use_local:
             logger.info("使用本地持仓数据...")
-            holdings_df = load_csv_data("红利指数持仓汇总.csv")
-            dividend_df = load_csv_data("股票分红次数汇总.csv")
+            holdings_df = load_csv_data("红利指数持仓汇总.csv", date_str)
+            dividend_df = load_csv_data("股票分红次数汇总.csv", date_str)
         else:
             logger.info("从API获取持仓数据...")
             holdings_df = self.fetch_all_holdings()
@@ -177,9 +212,9 @@ class IndexHoldingsFetcher:
                 logger.error("获取持仓数据失败")
                 return []
 
-            # 保存持仓数据
-            save_csv_data(holdings_df, "红利指数持仓汇总.csv")
-            logger.info(f"持仓数据已保存: {len(holdings_df)} 条")
+            # 保存持仓数据到当前月份目录
+            save_csv_data(holdings_df, "红利指数持仓汇总.csv", date_str)
+            logger.info(f"持仓数据已保存到 {date_str}/: {len(holdings_df)} 条")
 
             # Step 2: 获取分红次数
             logger.info("获取分红次数数据...")
@@ -199,8 +234,8 @@ class IndexHoldingsFetcher:
                 })
 
             dividend_df = pd.DataFrame(dividend_data)
-            save_csv_data(dividend_df, "股票分红次数汇总.csv")
-            logger.info(f"分红次数数据已保存: {len(dividend_df)} 条")
+            save_csv_data(dividend_df, "股票分红次数汇总.csv", date_str)
+            logger.info(f"分红次数数据已保存到 {date_str}/: {len(dividend_df)} 条")
 
         # Step 3: 筛选 - 沪深主板 + 分红次数 > 5
         if dividend_df is None or dividend_df.empty:

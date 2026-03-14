@@ -8,7 +8,7 @@ from typing import Dict, List, Set, Tuple
 import efinance as ef
 import pandas as pd
 
-from ..utils.helpers import DATA_DIR, setup_logger, load_csv_data, save_csv_data
+from ..utils.helpers import DATA_DIR, setup_logger, load_csv_data, save_csv_data, get_current_date_dir
 
 logger = setup_logger(__name__)
 
@@ -24,6 +24,12 @@ EXCHANGE_SUFFIX_MAP = {
 
 class BoardMappingFetcher:
     """板块映射获取器"""
+
+    # 需要过滤掉的动态标签（非传统行业/概念）
+    DYNAMIC_TAGS_TO_FILTER = {
+        "昨日高振幅", "昨日高换手", "昨日涨停", "昨日涨停_含一字",
+        "昨日首板", "最近多板",
+    }
 
     def __init__(self):
         """初始化"""
@@ -105,7 +111,10 @@ class BoardMappingFetcher:
                     for _, board_row in boards.iterrows():
                         board_name = board_row.iloc[3]  # 板块名称列
                         if pd.notna(board_name) and str(board_name) != "nan":
-                            concepts.append(str(board_name).strip())
+                            name = str(board_name).strip()
+                            # 过滤掉动态标签
+                            if name not in self.DYNAMIC_TAGS_TO_FILTER:
+                                concepts.append(name)
             except Exception as e:
                 logger.debug(f"获取概念板块失败: {e}")
 
@@ -149,8 +158,16 @@ class BoardMappingFetcher:
         if self.failed_stocks:
             logger.warning(f"失败股票: {', '.join(self.failed_stocks)}")
 
-    def save_to_csv(self):
-        """保存板块映射到 CSV"""
+    def save_to_csv(self, date_str: str | None = None):
+        """
+        保存板块映射到 CSV
+
+        Args:
+            date_str: 日期字符串（YYYY-MM格式），None则使用当前日期
+        """
+        if date_str is None:
+            date_str = get_current_date_dir()
+
         data = []
         for stock_code in sorted(self.stock_names.keys()):
             stock_name = self.stock_names[stock_code]
@@ -173,23 +190,27 @@ class BoardMappingFetcher:
         df = pd.DataFrame(data)
         df = df.sort_values("股票代码")
 
-        # 使用 utf-8-sig 编码（UTF-8 with BOM）
-        save_csv_data(df, "个股板块映射.csv")
+        # 使用 utf-8-sig 编码（UTF-8 with BOM），保存到月度目录
+        save_csv_data(df, "个股板块映射.csv", date_str)
 
-        logger.info(f"板块映射已保存: {len(df)} 条记录")
+        logger.info(f"板块映射已保存到 {date_str}/: {len(df)} 条记录")
 
         return df
 
-    def update(self, show_progress: bool = True) -> bool:
+    def update(self, show_progress: bool = True, date_str: str | None = None) -> bool:
         """
         更新板块映射文件
 
         Args:
             show_progress: 是否显示进度信息
+            date_str: 日期字符串（YYYY-MM格式），None则使用当前日期
 
         Returns:
             是否成功
         """
+        if date_str is None:
+            date_str = get_current_date_dir()
+
         try:
             if show_progress:
                 logger.info("=" * 60)
@@ -206,8 +227,8 @@ class BoardMappingFetcher:
             # 步骤2: 获取板块信息
             self.process_boards(stocks, delay=1.0)
 
-            # 步骤3: 保存到CSV
-            df = self.save_to_csv()
+            # 步骤3: 保存到CSV（传入日期参数）
+            df = self.save_to_csv(date_str)
 
             # 统计信息
             has_concept = df[df["概念板块"] != "无"]
