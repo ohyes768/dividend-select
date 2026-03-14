@@ -71,7 +71,6 @@ def display_summary(results: list, df: pd.DataFrame):
         name = str(row["股票名称"])
         yield_3y = row.get("3年平均股息率(%)", "")
         yield_2025 = row.get("2025年股息率(%)", "")
-        industry = str(row.get("申万一级行业", ""))
 
         # 处理股息率显示
         try:
@@ -84,7 +83,7 @@ def display_summary(results: list, df: pd.DataFrame):
         except (ValueError, TypeError):
             yield_2025_str = "N/A"
 
-        print(f"  {i:2d}. {code} {name:8s}  3年均值: {yield_str:>8s}  2025: {yield_2025_str:>8s}  {industry}")
+        print(f"  {i:2d}. {code} {name:8s}  3年均值: {yield_str:>8s}  2025: {yield_2025_str:>8s}")
 
     # 统计信息
     print("\n【统计信息】")
@@ -104,15 +103,6 @@ def display_summary(results: list, df: pd.DataFrame):
         print(f"    > 4%:  {len(yields[yields > 4])} 只")
     else:
         print("  无有效股息率数据")
-
-    # 行业分布
-    industries = df_sorted["申万一级行业"].dropna()
-    industries = industries[industries != ""]  # 过滤空字符串
-    if len(industries) > 0:
-        print("\n  行业分布 (TOP5):")
-        industry_counts = industries.value_counts().head(5)
-        for industry, count in industry_counts.items():
-            print(f"    {industry}: {count} 只")
 
 
 def main():
@@ -165,26 +155,11 @@ def main():
     if args.limit > 0:
         stock_list = stock_list[:args.limit]
 
-    # Step 4: 预加载板块信息
-    logger.info("Step 4: 预加载板块信息...")
-    board_loader = BoardInfoLoader()
-    stock_codes = [s.code for s in stock_list]
-    board_info_map = board_loader.get_all_board_info(stock_codes)
-
-    # Step 5: 计算股息率并增量写入
-    logger.info("Step 5: 计算股息率（增量写入）...")
+    # Step 4: 计算股息率并增量写入
+    logger.info("Step 4: 计算股息率（增量写入）...")
 
     def on_stock_complete(result: StockResult):
         """每计算完一个股票，追加写入CSV"""
-        # 补充板块信息
-        if result.code in board_info_map:
-            info = board_info_map[result.code]
-            result.concept_boards = info.concept_boards
-            result.industry_boards = info.industry_boards
-            result.sw_level1 = info.sw_level1
-            result.sw_level2 = info.sw_level2
-            result.sw_level3 = info.sw_level3
-
         # 追加写入CSV
         append_csv_row(result.to_dict(), OUTPUT_FILE)
         logger.info(f"已保存 {result.code} {result.name}")

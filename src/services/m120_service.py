@@ -74,14 +74,11 @@ class M120Service:
             失败返回 None
         """
         try:
-            full_code = self._get_stock_code_with_prefix(code)
-
-            # 获取历史数据（后复权）
+            # 获取历史数据（前复权），symbol 不需要交易所前缀
             df = ak.stock_zh_a_hist(
-                symbol=full_code,
+                symbol=code,
                 period="daily",
-                start_date="20240101",
-                adjust="qfq"  # 前复权
+                adjust="qfq"
             )
 
             if df.empty or len(df) < 120:
@@ -169,7 +166,7 @@ class M120Service:
             df = pd.read_csv(self.M120_CSV_FILE, encoding="utf-8-sig")
             result = {}
             for _, row in df.iterrows():
-                code = str(row["股票代码"]).zfill(6)
+                code = str(int(row["股票代码"])).zfill(6)
                 result[code] = {
                     "m120": row["M120"],
                     "close": row["收盘价"],

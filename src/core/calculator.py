@@ -31,7 +31,7 @@ class DividendCalculator:
         """
         获取股票历史价格数据（带缓存）
 
-        使用后复权价格计算股息率
+        使用不复权价格计算股息率（后复权价格会导致股息率被严重低估）
         """
         # 确保code是字符串
         code = str(code).zfill(6)
@@ -40,8 +40,10 @@ class DividendCalculator:
             return self._price_cache[code]
 
         try:
-            # 使用hfq（后复权）价格
-            df = ak.stock_zh_a_hist(symbol=code, adjust="hfq")
+            # 使用不复权价格计算股息率
+            # 注意：股息率 = 分红 / 股价，分红是实际金额，股价也应该是实际价格
+            # 后复权价格会把过去的分红加回去，导致股息率被严重低估
+            df = ak.stock_zh_a_hist(symbol=code, adjust="")
             if df is not None and not df.empty:
                 # 标准化日期列
                 df["日期"] = pd.to_datetime(df["日期"])

@@ -236,7 +236,7 @@ async def health():
 
 @router.get("/stocks", response_model=StockListResponse)
 async def get_stocks(
-    min_yield: Optional[float] = Query(None, description="最小股息率(%)"),
+    min_yield: float = Query(5, description="最小股息率(%)，默认5%"),
     max_yield: Optional[float] = Query(None, description="最大股息率(%)"),
     exchange: Optional[str] = Query(None, description="交易所筛选"),
     industry: Optional[str] = Query(None, description="行业筛选"),
@@ -347,12 +347,12 @@ async def get_stats():
 
 @router.get("/m120", response_model=M120ListResponse)
 async def get_m120_stocks(
-    min_yield: float = Query(3.0, description="最小股息率(%)，默认3"),
+    min_yield: float = Query(5.0, description="最小股息率(%)，默认5%"),
     sort_by: str = Query("avg_yield_3y", description="排序字段"),
     sort_order: str = Query("desc", description="排序方向(asc/desc)")
 ):
     """
-    批量获取筛选出来的股息率>3的股票的 M120 数据
+    批量获取筛选出来的股息率>=5的股票的 M120 数据
 
     该接口每天刷新一次 M120 数据，适用于 n8n 定时调用。
 

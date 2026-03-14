@@ -219,3 +219,350 @@
 2026-03-13 16:44:57 - src.services.pe_service - ERROR - 获取 PE 数据失败: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
 2026-03-13 16:45:45 - src.services.pe_service - INFO - 从 akshare 获取 A 股 PE/PB 数据...
 2026-03-13 16:45:55 - src.services.pe_service - ERROR - 获取 PE 数据失败: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2026-03-13 22:17:54 - src.services.pe_service - INFO - 从 akshare 获取 A 股 PE/PB 数据...
+2026-03-13 22:20:54 - src.services.pe_service - INFO - PE 数据获取成功，共 5820 条记录
+2026-03-13 22:20:55 - src.services.m120_service - WARNING - M120 数据文件不存在: F:\github\person_project\personal-web\backend\dividend-select\data\M120数据.csv
+2026-03-13 22:20:57 - src.services.m120_service - WARNING - M120 数据文件不存在: F:\github\person_project\personal-web\backend\dividend-select\data\M120数据.csv
+2026-03-13 22:20:59 - src.services.m120_service - WARNING - M120 数据文件不存在: F:\github\person_project\personal-web\backend\dividend-select\data\M120数据.csv
+2026-03-13 22:25:19 - src.services.m120_service - WARNING - M120 数据文件不存在: F:\github\person_project\personal-web\backend\dividend-select\data\M120数据.csv
+2026-03-13 22:29:13 - dividend-select - INFO - ==================================================
+2026-03-13 22:29:13 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 22:29:13 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 22:29:13 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 22:29:13 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:29:13 - dividend-select - INFO - ==================================================
+2026-03-13 22:29:13 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:29:13 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 22:29:13 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 22:29:13 - dividend-select - INFO - M120 数据文件不存在，请调用 POST /api/m120/refresh 接口刷新数据
+2026-03-13 22:29:31 - src.services.pe_service - INFO - 从 akshare 获取 A 股 PE/PB 数据...
+2026-03-13 22:32:09 - src.services.pe_service - INFO - PE 数据已保存到 F:\github\person_project\personal-web\backend\dividend-select\data\PE数据.csv，共 5820 条
+2026-03-13 22:33:32 - src.services.m120_service - WARNING - M120 数据文件不存在: F:\github\person_project\personal-web\backend\dividend-select\data\M120数据.csv
+2026-03-13 22:33:37 - src.services.m120_service - WARNING - M120 数据文件不存在: F:\github\person_project\personal-web\backend\dividend-select\data\M120数据.csv
+2026-03-13 22:34:16 - dividend-select - INFO - dividend-select 服务关闭
+2026-03-13 22:34:19 - dividend-select - INFO - ==================================================
+2026-03-13 22:34:19 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 22:34:19 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 22:34:19 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 22:34:19 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:34:19 - dividend-select - INFO - ==================================================
+2026-03-13 22:34:19 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:34:19 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 22:34:19 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 22:34:19 - dividend-select - INFO - M120 数据文件不存在，请调用 POST /api/m120/refresh 接口刷新数据
+2026-03-13 22:34:26 - src.services.m120_service - WARNING - M120 数据文件不存在: F:\github\person_project\personal-web\backend\dividend-select\data\M120数据.csv
+2026-03-13 22:34:57 - dividend-select - INFO - dividend-select 服务关闭
+2026-03-13 22:34:59 - dividend-select - INFO - ==================================================
+2026-03-13 22:34:59 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 22:34:59 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 22:34:59 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 22:34:59 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:34:59 - dividend-select - INFO - ==================================================
+2026-03-13 22:34:59 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:34:59 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 22:34:59 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 22:34:59 - dividend-select - INFO - M120 数据文件不存在，请调用 POST /api/m120/refresh 接口刷新数据
+2026-03-13 22:35:25 - dividend-select - INFO - dividend-select 服务关闭
+2026-03-13 22:35:28 - dividend-select - INFO - ==================================================
+2026-03-13 22:35:28 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 22:35:28 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 22:35:28 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 22:35:28 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:35:28 - dividend-select - INFO - ==================================================
+2026-03-13 22:35:28 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:35:28 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 22:35:28 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 22:35:28 - dividend-select - INFO - M120 数据文件不存在，请调用 POST /api/m120/refresh 接口刷新数据
+2026-03-13 22:35:51 - dividend-select - INFO - dividend-select 服务关闭
+2026-03-13 22:35:53 - dividend-select - INFO - ==================================================
+2026-03-13 22:35:53 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 22:35:53 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 22:35:53 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 22:35:53 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:35:53 - dividend-select - INFO - ==================================================
+2026-03-13 22:35:53 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:35:53 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 22:35:53 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 22:35:53 - dividend-select - INFO - M120 数据文件不存在，请调用 POST /api/m120/refresh 接口刷新数据
+2026-03-13 22:36:29 - dividend-select - INFO - dividend-select 服务关闭
+2026-03-13 22:36:31 - dividend-select - INFO - ==================================================
+2026-03-13 22:36:31 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 22:36:31 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 22:36:31 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 22:36:31 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:36:31 - dividend-select - INFO - ==================================================
+2026-03-13 22:36:31 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:36:31 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 22:36:31 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 22:36:31 - dividend-select - INFO - M120 数据文件不存在，请调用 POST /api/m120/refresh 接口刷新数据
+2026-03-13 22:37:18 - dividend-select - INFO - dividend-select 服务关闭
+2026-03-13 22:37:21 - dividend-select - INFO - ==================================================
+2026-03-13 22:37:21 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 22:37:21 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 22:37:21 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 22:37:21 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:37:21 - dividend-select - INFO - ==================================================
+2026-03-13 22:37:21 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:37:21 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 22:37:21 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 22:37:21 - dividend-select - INFO - M120 数据文件不存在，请调用 POST /api/m120/refresh 接口刷新数据
+2026-03-13 22:40:04 - src.services.m120_service - WARNING - M120 数据文件不存在: F:\github\person_project\personal-web\backend\dividend-select\data\M120数据.csv
+2026-03-13 22:40:29 - src.services.m120_service - WARNING - M120 数据文件不存在: F:\github\person_project\personal-web\backend\dividend-select\data\M120数据.csv
+2026-03-13 22:40:34 - src.services.m120_service - WARNING - M120 数据文件不存在: F:\github\person_project\personal-web\backend\dividend-select\data\M120数据.csv
+2026-03-13 22:40:43 - src.api.routes - INFO - 开始刷新 M120 数据，共 35 只股票
+2026-03-13 22:40:45 - src.services.m120_service - WARNING - 股票 601857 数据不足120天
+2026-03-13 22:40:46 - src.services.m120_service - WARNING - 股票 600273 数据不足120天
+2026-03-13 22:40:48 - src.services.m120_service - WARNING - 股票 600350 数据不足120天
+2026-03-13 22:40:49 - src.services.m120_service - WARNING - 股票 601328 数据不足120天
+2026-03-13 22:40:50 - src.services.m120_service - WARNING - 股票 601939 数据不足120天
+2026-03-13 22:40:51 - src.services.m120_service - WARNING - 股票 601988 数据不足120天
+2026-03-13 22:40:52 - src.services.m120_service - WARNING - 股票 601398 数据不足120天
+2026-03-13 22:40:53 - src.services.m120_service - WARNING - 股票 600096 数据不足120天
+2026-03-13 22:40:54 - src.services.m120_service - WARNING - 股票 601088 数据不足120天
+2026-03-13 22:40:54 - src.services.m120_service - INFO - 进度: 10/35
+2026-03-13 22:40:55 - src.services.m120_service - WARNING - 股票 601928 数据不足120天
+2026-03-13 22:40:56 - src.services.m120_service - WARNING - 股票 601998 数据不足120天
+2026-03-13 22:40:57 - src.services.m120_service - WARNING - 股票 601168 数据不足120天
+2026-03-13 22:40:59 - src.services.m120_service - WARNING - 股票 601288 数据不足120天
+2026-03-13 22:41:00 - src.services.m120_service - WARNING - 股票 601098 数据不足120天
+2026-03-13 22:41:01 - src.services.m120_service - WARNING - 股票 601818 数据不足120天
+2026-03-13 22:41:02 - src.services.m120_service - WARNING - 股票 601336 数据不足120天
+2026-03-13 22:41:04 - src.services.m120_service - WARNING - 股票 601225 数据不足120天
+2026-03-13 22:41:05 - src.services.m120_service - WARNING - 股票 601900 数据不足120天
+2026-03-13 22:41:06 - src.services.m120_service - WARNING - 股票 601598 数据不足120天
+2026-03-13 22:41:06 - src.services.m120_service - INFO - 进度: 20/35
+2026-03-13 22:41:07 - src.services.m120_service - WARNING - 股票 603929 数据不足120天
+2026-03-13 22:41:08 - src.services.m120_service - WARNING - 股票 600919 数据不足120天
+2026-03-13 22:41:10 - src.services.m120_service - WARNING - 股票 601919 数据不足120天
+2026-03-13 22:41:11 - src.services.m120_service - WARNING - 股票 601019 数据不足120天
+2026-03-13 22:41:12 - src.services.m120_service - WARNING - 股票 600901 数据不足120天
+2026-03-13 22:41:13 - src.services.m120_service - WARNING - 股票 002895 数据不足120天
+2026-03-13 22:41:14 - src.services.m120_service - WARNING - 股票 601838 数据不足120天
+2026-03-13 22:41:15 - src.services.m120_service - WARNING - 股票 601825 数据不足120天
+2026-03-13 22:41:16 - src.services.m120_service - WARNING - 股票 605028 数据不足120天
+2026-03-13 22:41:18 - src.services.m120_service - WARNING - 股票 600938 数据不足120天
+2026-03-13 22:41:18 - src.services.m120_service - INFO - 进度: 30/35
+2026-03-13 22:41:19 - src.services.m120_service - WARNING - 股票 603967 数据不足120天
+2026-03-13 22:41:20 - src.services.m120_service - WARNING - 股票 601658 数据不足120天
+2026-03-13 22:41:21 - src.services.m120_service - WARNING - 股票 601077 数据不足120天
+2026-03-13 22:41:23 - src.services.m120_service - WARNING - 股票 603706 数据不足120天
+2026-03-13 22:41:24 - src.services.m120_service - WARNING - 股票 601187 数据不足120天
+2026-03-13 22:41:26 - src.services.m120_service - WARNING - 股票 601963 数据不足120天
+2026-03-13 22:41:26 - src.services.m120_service - WARNING - M120 数据文件不存在: F:\github\person_project\personal-web\backend\dividend-select\data\M120数据.csv
+2026-03-13 22:41:26 - src.services.m120_service - WARNING - M120 数据文件不存在: F:\github\person_project\personal-web\backend\dividend-select\data\M120数据.csv
+2026-03-13 22:41:30 - src.services.m120_service - WARNING - M120 数据文件不存在: F:\github\person_project\personal-web\backend\dividend-select\data\M120数据.csv
+2026-03-13 22:41:55 - src.services.m120_service - WARNING - M120 数据文件不存在: F:\github\person_project\personal-web\backend\dividend-select\data\M120数据.csv
+2026-03-13 22:42:10 - src.services.m120_service - WARNING - M120 数据文件不存在: F:\github\person_project\personal-web\backend\dividend-select\data\M120数据.csv
+2026-03-13 22:45:29 - dividend-select - INFO - ==================================================
+2026-03-13 22:45:29 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 22:45:29 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 22:45:29 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 22:45:29 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:45:29 - dividend-select - INFO - ==================================================
+2026-03-13 22:45:29 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:45:29 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 22:45:29 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 22:45:29 - dividend-select - INFO - M120 数据文件不存在，请调用 POST /api/m120/refresh 接口刷新数据
+2026-03-13 22:46:08 - src.services.m120_service - WARNING - M120 数据文件不存在: F:\github\person_project\personal-web\backend\dividend-select\data\M120数据.csv
+2026-03-13 22:47:09 - src.api.routes - INFO - 开始刷新 M120 数据，共 35 只股票
+2026-03-13 22:47:22 - src.services.m120_service - INFO - 进度: 10/35
+2026-03-13 22:47:36 - src.services.m120_service - INFO - 进度: 20/35
+2026-03-13 22:47:49 - src.services.m120_service - INFO - 进度: 30/35
+2026-03-13 22:47:56 - src.services.m120_service - INFO - M120 数据已保存到 F:\github\person_project\personal-web\backend\dividend-select\data\M120数据.csv，共 35 条
+2026-03-13 22:50:23 - dividend-select - INFO - ==================================================
+2026-03-13 22:50:23 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 22:50:23 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 22:50:23 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 22:50:23 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:50:23 - dividend-select - INFO - ==================================================
+2026-03-13 22:50:23 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:50:23 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 22:50:23 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 22:50:23 - dividend-select - INFO - M120 数据文件加载成功，共 35 条记录
+2026-03-13 22:53:40 - dividend-select - INFO - ==================================================
+2026-03-13 22:53:40 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 22:53:40 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 22:53:40 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 22:53:40 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:53:40 - dividend-select - INFO - ==================================================
+2026-03-13 22:53:40 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:53:40 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 22:53:40 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 22:53:40 - dividend-select - INFO - M120 数据文件加载成功，共 35 条记录
+2026-03-13 22:58:28 - dividend-select - INFO - dividend-select 服务关闭
+2026-03-13 22:58:30 - dividend-select - INFO - ==================================================
+2026-03-13 22:58:30 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 22:58:30 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 22:58:30 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 22:58:30 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:58:30 - dividend-select - INFO - ==================================================
+2026-03-13 22:58:30 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:58:30 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 22:58:30 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 22:58:30 - dividend-select - INFO - M120 数据文件加载成功，共 35 条记录
+2026-03-13 22:59:19 - dividend-select - INFO - ==================================================
+2026-03-13 22:59:19 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 22:59:19 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 22:59:19 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 22:59:19 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:59:19 - dividend-select - INFO - ==================================================
+2026-03-13 22:59:19 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 22:59:19 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 22:59:19 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 22:59:19 - dividend-select - INFO - M120 数据文件加载成功，共 35 条记录
+2026-03-13 23:04:21 - src.services.realtime_service - WARNING - 股票 601919 未找到
+2026-03-13 23:10:28 - src.services.realtime_service - WARNING - 股票 601919 未找到
+2026-03-13 23:16:19 - src.services.realtime_service - WARNING - 股票 601919 未找到
+2026-03-13 23:17:10 - dividend-select - INFO - ==================================================
+2026-03-13 23:17:10 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 23:17:10 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 23:17:10 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 23:17:10 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 23:17:10 - dividend-select - INFO - ==================================================
+2026-03-13 23:17:10 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 23:17:10 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 23:17:10 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 23:17:10 - dividend-select - INFO - M120 数据文件加载成功，共 35 条记录
+2026-03-13 23:25:36 - dividend-select - INFO - dividend-select 服务关闭
+2026-03-13 23:25:38 - dividend-select - INFO - ==================================================
+2026-03-13 23:25:38 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 23:25:38 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 23:25:38 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 23:25:38 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 23:25:38 - dividend-select - INFO - ==================================================
+2026-03-13 23:25:38 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 23:25:38 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 23:25:38 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 23:25:38 - dividend-select - INFO - M120 数据文件加载成功，共 35 条记录
+2026-03-13 23:27:10 - dividend-select - INFO - dividend-select 服务关闭
+2026-03-13 23:27:12 - dividend-select - INFO - ==================================================
+2026-03-13 23:27:12 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 23:27:12 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 23:27:12 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 23:27:12 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 23:27:12 - dividend-select - INFO - ==================================================
+2026-03-13 23:27:12 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 23:27:12 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 23:27:12 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 23:27:12 - dividend-select - INFO - M120 数据文件加载成功，共 35 条记录
+2026-03-13 23:31:10 - dividend-select - INFO - ==================================================
+2026-03-13 23:31:10 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 23:31:10 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 23:31:10 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 23:31:10 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 23:31:10 - dividend-select - INFO - ==================================================
+2026-03-13 23:31:10 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 23:31:10 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 23:31:10 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 23:31:10 - dividend-select - INFO - M120 数据文件加载成功，共 35 条记录
+2026-03-13 23:33:10 - src.services.realtime_service - ERROR - 获取股票 601919 实时价格失败: 'NoneType' object is not subscriptable
+2026-03-13 23:40:17 - dividend-select - INFO - dividend-select 服务关闭
+2026-03-13 23:40:20 - dividend-select - INFO - ==================================================
+2026-03-13 23:40:20 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 23:40:20 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 23:40:20 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 23:40:20 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 23:40:20 - dividend-select - INFO - ==================================================
+2026-03-13 23:40:20 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 23:40:20 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 23:40:20 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 23:40:20 - dividend-select - INFO - M120 数据文件加载成功，共 35 条记录
+2026-03-13 23:41:06 - dividend-select - INFO - ==================================================
+2026-03-13 23:41:06 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-13 23:41:06 - dividend-select - INFO - 版本: 1.0.0
+2026-03-13 23:41:06 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-13 23:41:06 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 23:41:06 - dividend-select - INFO - ==================================================
+2026-03-13 23:41:06 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-13 23:41:06 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-13 23:41:06 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-13 23:41:06 - dividend-select - INFO - M120 数据文件加载成功，共 35 条记录
+2026-03-14 09:27:22 - src.services.pe_service - INFO - 从 akshare 获取 A 股 PE/PB 数据...
+2026-03-14 09:29:22 - src.services.pe_service - INFO - PE 数据已保存到 F:\github\person_project\personal-web\backend\dividend-select\data\PE数据.csv，共 5820 条
+2026-03-14 09:53:13 - dividend-select - INFO - ==================================================
+2026-03-14 09:53:13 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-14 09:53:13 - dividend-select - INFO - 版本: 1.0.0
+2026-03-14 09:53:13 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-14 09:53:13 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 09:53:13 - dividend-select - INFO - ==================================================
+2026-03-14 09:53:13 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 09:53:13 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-14 09:53:13 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-14 09:53:13 - dividend-select - INFO - M120 数据文件加载成功，共 35 条记录
+2026-03-14 10:01:17 - dividend-select - INFO - dividend-select 服务关闭
+2026-03-14 10:01:23 - dividend-select - INFO - ==================================================
+2026-03-14 10:01:23 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-14 10:01:23 - dividend-select - INFO - 版本: 1.0.0
+2026-03-14 10:01:23 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-14 10:01:23 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 10:01:23 - dividend-select - INFO - ==================================================
+2026-03-14 10:01:23 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 10:01:23 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-14 10:01:23 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-14 10:01:23 - dividend-select - INFO - M120 数据文件加载成功，共 35 条记录
+2026-03-14 10:05:23 - dividend-select - INFO - dividend-select 服务关闭
+2026-03-14 10:05:29 - dividend-select - INFO - ==================================================
+2026-03-14 10:05:29 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-14 10:05:29 - dividend-select - INFO - 版本: 1.0.0
+2026-03-14 10:05:29 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-14 10:05:29 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 10:05:29 - dividend-select - INFO - ==================================================
+2026-03-14 10:05:29 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 10:05:29 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-14 10:05:29 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-14 10:05:29 - dividend-select - INFO - M120 数据文件加载成功，共 35 条记录
+2026-03-14 10:20:36 - dividend-select - INFO - dividend-select 服务关闭
+2026-03-14 10:20:42 - dividend-select - INFO - ==================================================
+2026-03-14 10:20:42 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-14 10:20:42 - dividend-select - INFO - 版本: 1.0.0
+2026-03-14 10:20:42 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-14 10:20:42 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 10:20:42 - dividend-select - INFO - ==================================================
+2026-03-14 10:20:42 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 10:20:42 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-14 10:20:42 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-14 10:20:42 - dividend-select - INFO - M120 数据文件加载成功，共 76 条记录
+2026-03-14 10:20:51 - dividend-select - INFO - dividend-select 服务关闭
+2026-03-14 10:20:56 - dividend-select - INFO - ==================================================
+2026-03-14 10:20:56 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-14 10:20:56 - dividend-select - INFO - 版本: 1.0.0
+2026-03-14 10:20:56 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-14 10:20:56 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 10:20:56 - dividend-select - INFO - ==================================================
+2026-03-14 10:20:56 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 10:20:56 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-14 10:20:56 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-14 10:20:56 - dividend-select - INFO - M120 数据文件加载成功，共 76 条记录
+2026-03-14 10:21:06 - dividend-select - INFO - dividend-select 服务关闭
+2026-03-14 10:21:12 - dividend-select - INFO - ==================================================
+2026-03-14 10:21:12 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-14 10:21:12 - dividend-select - INFO - 版本: 1.0.0
+2026-03-14 10:21:12 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-14 10:21:12 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 10:21:12 - dividend-select - INFO - ==================================================
+2026-03-14 10:21:12 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 10:21:12 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-14 10:21:12 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-14 10:21:12 - dividend-select - INFO - M120 数据文件加载成功，共 76 条记录
+2026-03-14 10:21:33 - dividend-select - INFO - dividend-select 服务关闭
+2026-03-14 10:21:38 - dividend-select - INFO - ==================================================
+2026-03-14 10:21:38 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-14 10:21:38 - dividend-select - INFO - 版本: 1.0.0
+2026-03-14 10:21:38 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-14 10:21:38 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 10:21:38 - dividend-select - INFO - ==================================================
+2026-03-14 10:21:38 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 10:21:38 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-14 10:21:38 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-14 10:21:38 - dividend-select - INFO - M120 数据文件加载成功，共 76 条记录
+2026-03-14 10:22:38 - dividend-select - INFO - dividend-select 服务关闭
+2026-03-14 10:22:43 - dividend-select - INFO - ==================================================
+2026-03-14 10:22:43 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-14 10:22:43 - dividend-select - INFO - 版本: 1.0.0
+2026-03-14 10:22:43 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-14 10:22:43 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 10:22:43 - dividend-select - INFO - ==================================================
+2026-03-14 10:22:43 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 10:22:43 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-14 10:22:43 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-14 10:22:43 - dividend-select - INFO - M120 数据文件加载成功，共 76 条记录

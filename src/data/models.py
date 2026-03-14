@@ -63,13 +63,6 @@ class StockResult:
     exchange: str
     source_index: str
 
-    # 行业信息
-    concept_boards: str = ""
-    industry_boards: str = ""
-    sw_level1: str = ""
-    sw_level2: str = ""
-    sw_level3: str = ""
-
     # 近3年年度数据
     yearly_data: dict[int, YearlyDividendData] = field(default_factory=dict)
     avg_price_3y: float = 0.0      # 近3年平均股价
@@ -88,11 +81,6 @@ class StockResult:
             "股票名称": self.name,
             "交易所": self.exchange,
             "来源指数": self.source_index,
-            "申万一级行业": self.sw_level1,
-            "申万二级行业": self.sw_level2,
-            "申万三级行业": self.sw_level3,
-            "概念板块": self.concept_boards,
-            "行业板块": self.industry_boards,
         }
 
         # 近3年年度数据
