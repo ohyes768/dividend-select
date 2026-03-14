@@ -149,7 +149,7 @@ def main():
     # Step 2: 更新板块映射（仅默认模式，保存到 date_str 目录）
     if not args.use_local:
         logger.info("Step 2: 更新板块映射...")
-        board_fetcher = BoardMappingFetcher()
+        board_fetcher = BoardMappingFetcher(date_str=date_str)
         if board_fetcher.update(show_progress=False, date_str=date_str):
             # 板块映射已通过 save_to_csv(date_str) 保存到日期目录
             pass

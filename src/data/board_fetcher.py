@@ -8,7 +8,7 @@ from typing import Dict, List, Set, Tuple
 import efinance as ef
 import pandas as pd
 
-from ..utils.helpers import DATA_DIR, setup_logger, load_csv_data, save_csv_data, get_current_date_dir
+from ..utils.helpers import DATA_DIR, setup_logger, load_csv_data, save_csv_data, get_current_date_dir, get_date_path, get_filename_with_date_suffix
 
 logger = setup_logger(__name__)
 
@@ -31,15 +31,21 @@ class BoardMappingFetcher:
         "昨日首板", "最近多板",
     }
 
-    def __init__(self):
-        """初始化"""
+    def __init__(self, date_str: str | None = None):
+        """
+        初始化
+
+        Args:
+            date_str: 日期字符串（YYYY-MM格式），None则使用当前日期
+        """
         self.stock_to_concepts: Dict[str, Set[str]] = defaultdict(set)
         self.stock_to_industries: Dict[str, Set[str]] = defaultdict(set)
         self.stock_names: Dict[str, str] = {}
         self.failed_stocks: List[str] = []
 
-        self.holdings_file = DATA_DIR / "红利指数持仓汇总.csv"
-        self.output_file = DATA_DIR / "个股板块映射.csv"
+        self.date_str = date_str if date_str else get_current_date_dir()
+        self.holdings_file = get_date_path("红利指数持仓汇总.csv", self.date_str)
+        self.output_file = get_date_path("个股板块映射.csv", self.date_str)
 
     def read_dividend_stocks(self) -> List[Tuple[str, str, str]]:
         """
@@ -53,7 +59,7 @@ class BoardMappingFetcher:
         if not self.holdings_file.exists():
             raise FileNotFoundError(f"文件不存在: {self.holdings_file}")
 
-        df = load_csv_data("红利指数持仓汇总.csv")
+        df = load_csv_data("红利指数持仓汇总.csv", self.date_str)
 
         # 检查必要列
         required_columns = ["交易所", "股票代码", "股票名称"]

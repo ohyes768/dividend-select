@@ -5,7 +5,7 @@ from typing import Optional
 
 import pandas as pd
 
-from ..utils.helpers import DATA_DIR, setup_logger
+from ..utils.helpers import DATA_DIR, setup_logger, get_current_date_dir, get_date_path, get_filename_with_date_suffix
 from .models import BoardInfo
 
 logger = setup_logger(__name__)
@@ -14,8 +14,16 @@ logger = setup_logger(__name__)
 class BoardInfoLoader:
     """板块信息加载器"""
 
-    def __init__(self):
-        self.board_mapping_file = DATA_DIR / "个股板块映射.csv"
+    def __init__(self, date_str: str | None = None):
+        """
+        初始化
+
+        Args:
+            date_str: 日期字符串（YYYY-MM格式），None则使用当前日期
+        """
+        self.date_str = date_str if date_str else get_current_date_dir()
+        self.board_mapping_file = get_date_path("个股板块映射.csv", self.date_str)
+        # 申万行业映射文件固定在 data 目录，不带日期后缀
         self.sw_mapping_file = DATA_DIR / "个股申万行业映射.csv"
 
         self._board_df: Optional[pd.DataFrame] = None
