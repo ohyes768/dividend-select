@@ -14,6 +14,11 @@ from src.api.models import (
     M120Stock,
     QuarterlyData,
     Quarter,
+    RealtimePriceRequest,
+    RealtimePriceResponse,
+    StockInfo,
+    StockInfoRequest,
+    StockInfoResponse,
     StatsResponse,
     StockDetailResponse,
     StockListResponse,
@@ -24,7 +29,9 @@ from src.services.data_reader import DataReader
 from src.services.filter_service import FilterService
 from src.services.m120_service import M120Service
 from src.services.pe_service import PEDataService
+from src.services.realtime_service import get_realtime_service
 from src.services.sort_service import SortService
+from src.services.stock_info_service import get_stock_info_service
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -38,6 +45,7 @@ filter_service: FilterService | None = None
 sort_service: SortService | None = None
 m120_service: M120Service | None = None
 pe_service: PEDataService | None = None
+stock_info_service: object | None = None
 
 
 def set_services(
@@ -57,12 +65,13 @@ def set_services(
         m120: M120 服务
         pe: PE 数据服务
     """
-    global data_reader, filter_service, sort_service, m120_service, pe_service
+    global data_reader, filter_service, sort_service, m120_service, pe_service, stock_info_service
     data_reader = reader
     filter_service = filterer
     sort_service = sorter
     m120_service = m120
     pe_service = pe
+    stock_info_service = get_stock_info_service(data_reader)
 
 
 def _row_to_stock_model(row: pd.Series) -> DividendStock:
@@ -125,11 +134,11 @@ def _row_to_stock_model(row: pd.Series) -> DividendStock:
         name=str(row["股票名称"]),
         exchange=str(row.get("交易所", "")),
         source_index=str(row.get("来源指数", "")) if pd.notna(row.get("来源指数")) else None,
-        sw_level1=str(row.get("申万一级行业", "")) if pd.notna(row.get("申万一级行业")) else None,
-        sw_level2=str(row.get("申万二级行业", "")) if pd.notna(row.get("申万二级行业")) else None,
-        sw_level3=str(row.get("申万三级行业", "")) if pd.notna(row.get("申万三级行业")) else None,
-        concept_board=str(row.get("概念板块", "")) if pd.notna(row.get("概念板块")) else None,
-        industry_board=str(row.get("行业板块", "")) if pd.notna(row.get("行业板块")) else None,
+        sw_level1=None,
+        sw_level2=None,
+        sw_level3=None,
+        concept_board=None,
+        industry_board=None,
         avg_price_2025=_to_float(row.get("2025年平均价")),
         dividend_2025=_to_float(row.get("2025年分红(元/股)")),
         dividend_count_2025=_to_int(row.get("2025年分红次数")),
@@ -457,13 +466,15 @@ async def refresh_m120_data():
 @router.get("/pe", response_model=StockPEResponse)
 async def get_pe_data(
     code: Optional[str] = Query(None, description="股票代码（查询单只股票）"),
-    force_refresh: bool = Query(False, description="是否强制刷新缓存")
+    codes: Optional[str] = Query(None, description="股票代码列表，逗号分隔（批量查询）"),
+    force_refresh: bool = Query(False, description="是否强制刷新缓存（已废弃）")
 ):
     """
     获取股票 PE/PB 数据
 
-    不传 code 参数时返回所有股票的 PE 数据（使用缓存，1小时有效期）。
-    传入 code 参数时返回指定股票的 PE 数据。
+    参数说明：
+    - code: 查询单只股票
+    - codes: 批量查询，格式如 "600000,600001,600002"
 
     返回数据：
     - code: 股票代码
@@ -476,41 +487,187 @@ async def get_pe_data(
     if pe_service is None:
         raise HTTPException(status_code=500, detail="服务未初始化")
 
+    if code and codes:
+        raise HTTPException(status_code=400, detail="不能同时使用 code 和 codes 参数")
+
     if code:
         # 查询单只股票
-        row = pe_service.get_pe_by_code(code, force_refresh=force_refresh)
+        row = pe_service.get_pe_by_code(code)
         if row is None:
             raise HTTPException(status_code=404, detail=f"股票 {code} 的 PE 数据不存在")
 
         items = [StockPE(
             code=str(row["code"]),
-            name=str(row["name"]),
+            name=str(row["name"]) if pd.notna(row["name"]) else "",
             pe=float(row["pe"]) if pd.notna(row["pe"]) else None,
             pb=float(row["pb"]) if pd.notna(row["pb"]) else None,
             market_cap=float(row["market_cap"]) if pd.notna(row["market_cap"]) else None,
             circulation_market_cap=float(row["circulation_market_cap"]) if pd.notna(row["circulation_market_cap"]) else None,
         )]
-    else:
-        # 查询所有股票
-        df = pe_service.fetch_all_pe_data(force_refresh=force_refresh)
+    elif codes:
+        # 批量查询指定股票
+        code_list = [c.strip() for c in codes.split(",") if c.strip()]
+        if not code_list:
+            raise HTTPException(status_code=400, detail="codes 参数不能为空")
+
+        df = pe_service.get_pe_by_codes(code_list)
 
         items = []
         for _, row in df.iterrows():
             items.append(StockPE(
                 code=str(row["code"]),
-                name=str(row["name"]),
+                name=str(row["name"]) if pd.notna(row["name"]) else "",
                 pe=float(row["pe"]) if pd.notna(row["pe"]) else None,
                 pb=float(row["pb"]) if pd.notna(row["pb"]) else None,
                 market_cap=float(row["market_cap"]) if pd.notna(row["market_cap"]) else None,
                 circulation_market_cap=float(row["circulation_market_cap"]) if pd.notna(row["circulation_market_cap"]) else None,
             ))
+    else:
+        # 不传参数时返回空列表，避免返回全部数据
+        items = []
 
     last_updated = None
-    if pe_service._cache_timestamp:
-        last_updated = datetime.fromtimestamp(pe_service._cache_timestamp).isoformat()
+    if pe_service.get_file_mtime():
+        last_updated = datetime.fromtimestamp(pe_service.get_file_mtime()).isoformat()
 
     return StockPEResponse(
         total=len(items),
         items=items,
         last_updated=last_updated
     )
+
+
+@router.post("/pe/update")
+async def update_pe_data():
+    """
+    更新 PE/PB 数据
+
+    从 akshare 获取最新的 A 股 PE/PB 数据并保存到 CSV 文件。
+
+    该操作可能需要较长时间（约 10-30 秒），因为需要从 akshare 获取全部 A 股数据。
+
+    Returns:
+        - success: 是否成功
+        - count: 更新的记录数
+        - message: 操作结果消息
+    """
+    if pe_service is None:
+        raise HTTPException(status_code=500, detail="服务未初始化")
+
+    try:
+        count = pe_service.update_pe_data()
+        return {
+            "success": True,
+            "count": count,
+            "message": f"PE 数据更新完成，共 {count} 条记录"
+        }
+    except Exception as e:
+        logger.error(f"更新 PE 数据失败: {e}")
+        raise HTTPException(status_code=500, detail=f"更新失败: {str(e)}")
+
+
+# ========== 实时股价相关接口 ==========
+
+
+@router.post("/realtime-price", response_model=RealtimePriceResponse)
+async def get_realtime_price(request: RealtimePriceRequest):
+    """
+    获取单只股票的实时收盘价和偏离度
+
+    该接口用于获取股票的实时收盘价，并根据传入的 M120 值计算偏离度。
+    适用于前端刷新按钮调用，获取最新的价格和偏离度数据。
+
+    请求参数：
+    - code: 股票代码（6位）
+    - m120: 120日均线值
+
+    返回数据：
+    - code: 股票代码
+    - close: 最新收盘价
+    - deviation: 偏离度(%) = (close - m120) / m120 * 100
+    - timestamp: 数据获取时间
+    """
+    try:
+        realtime_service = get_realtime_service()
+
+        # 获取实时收盘价
+        close = realtime_service.get_realtime_close(request.code)
+
+        if close is None:
+            raise HTTPException(status_code=404, detail=f"股票 {request.code} 的实时价格获取失败")
+
+        # 计算偏离度
+        deviation = realtime_service.calculate_deviation(close, request.m120)
+
+        return RealtimePriceResponse(
+            code=request.code,
+            close=close,
+            deviation=deviation,
+            timestamp=datetime.now().isoformat()
+        )
+
+    except ValueError as e:
+        logger.error(f"参数错误: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取实时价格失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取实时价格失败: {str(e)}")
+
+
+# ========== 股票信息相关接口 ==========
+
+
+@router.post("/stocks/info", response_model=StockInfoResponse)
+async def get_stocks_info(request: StockInfoRequest):
+    """
+    批量获取股票的行业/概念信息
+
+    根据股票代码列表批量查询：
+    - 交易所
+    - 申万一级行业
+    - 申万二级行业
+    - 申万三级行业
+    - 概念板块
+    - 行业板块
+
+    请求参数：
+    - codes: 股票代码列表
+
+    返回数据：
+    - code: 股票代码
+    - exchange: 交易所
+    - sw_level1: 申万一级行业
+    - sw_level2: 申万二级行业
+    - sw_level3: 申万三级行业
+    - concept_board: 概念板块
+    - industry_board: 行业板块
+    """
+    if stock_info_service is None:
+        raise HTTPException(status_code=500, detail="服务未初始化")
+
+    try:
+        info_map = stock_info_service.get_stocks_info(request.codes)
+
+        # 转换为列表
+        items = []
+        for code, info in info_map.items():
+            items.append(StockInfo(
+                code=code,
+                exchange=info.get("exchange"),
+                sw_level1=info.get("sw_level1"),
+                sw_level2=info.get("sw_level2"),
+                sw_level3=info.get("sw_level3"),
+                concept_board=info.get("concept_board"),
+                industry_board=info.get("industry_board"),
+            ))
+
+        return StockInfoResponse(
+            total=len(items),
+            items=items
+        )
+
+    except Exception as e:
+        logger.error(f"获取股票信息失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取股票信息失败: {str(e)}")

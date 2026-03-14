@@ -186,3 +186,55 @@ class M120ListResponse(BaseModel):
     total: int = Field(..., description="总记录数")
     items: list[M120Stock] = Field(..., description="股票列表")
     last_updated: Optional[str] = Field(None, description="数据最后更新时间")
+
+
+# ========== 实时股价相关模型 ==========
+
+
+class RealtimePriceRequest(BaseModel):
+    """
+    实时股价请求模型
+    """
+    code: str = Field(..., description="股票代码")
+    m120: float = Field(..., description="120日均线值", gt=0)
+
+
+class RealtimePriceResponse(BaseModel):
+    """
+    实时股价响应模型
+    """
+    code: str = Field(..., description="股票代码")
+    close: Optional[float] = Field(None, description="最新收盘价")
+    deviation: Optional[float] = Field(None, description="偏离度(%)")
+    timestamp: Optional[str] = Field(None, description="数据获取时间")
+
+
+# ========== 股票信息相关模型 ==========
+
+
+class StockInfo(BaseModel):
+    """
+    股票行业/概念信息模型
+    """
+    code: str = Field(..., description="股票代码")
+    exchange: Optional[str] = Field(None, description="交易所")
+    sw_level1: Optional[str] = Field(None, description="申万一级行业")
+    sw_level2: Optional[str] = Field(None, description="申万二级行业")
+    sw_level3: Optional[str] = Field(None, description="申万三级行业")
+    concept_board: Optional[str] = Field(None, description="概念板块")
+    industry_board: Optional[str] = Field(None, description="行业板块")
+
+
+class StockInfoRequest(BaseModel):
+    """
+    批量查询股票信息请求模型
+    """
+    codes: list[str] = Field(..., description="股票代码列表", min_length=1)
+
+
+class StockInfoResponse(BaseModel):
+    """
+    批量查询股票信息响应模型
+    """
+    items: list[StockInfo] = Field(..., description="股票信息列表")
+    total: int = Field(..., description="总记录数")

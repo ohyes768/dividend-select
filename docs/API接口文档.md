@@ -4,14 +4,15 @@
 
 本文档描述项目中所有对外暴露的 API 接口，包括类、方法和函数的调用规范。
 
-**文档版本**: v1.4
-**生成时间**: 2026-03-13
+**文档版本**: v1.5
+**生成时间**: 2026-03-14
 **状态**: 与代码实现同步
 
 ## API 变更记录
 
 | 日期 | 版本 | 变更内容 |
 |------|------|----------|
+| 2026-03-14 | v1.5 | 新增实时股价查询接口和股票行业/概念信息查询接口；PE接口新增批量查询参数 |
 | 2026-03-13 | v1.4 | M120 接口新增收盘价和偏离度字段 |
 | 2026-03-13 | v1.3 | 新增 PE 数据获取 API 端点：获取股票市盈率、市净率等估值指标 |
 | 2026-03-13 | v1.2 | 新增 M120 API 端点：获取股息率>3的股票的120日均线数据 |
@@ -786,14 +787,21 @@ uv run uvicorn src.main:app --reload --port 8000
 
 **端点**: `GET /api/pe`
 
-**说明**: 获取股票 PE/PB 数据。不传 code 参数时返回所有股票的 PE 数据（使用缓存，1小时有效期）；传入 code 参数时返回指定股票的 PE 数据。
+**说明**: 获取股票 PE/PB 数据。
 
 **查询参数**:
 
 | 参数 | 类型 | 必填 | 说明 | 默认值 |
 |------|------|------|------|--------|
 | `code` | string | 否 | 股票代码（查询单只股票） | - |
-| `force_refresh` | boolean | 否 | 是否强制刷新缓存 | false |
+| `codes` | string | 否 | 股票代码列表，逗号分隔（批量查询） | - |
+| `force_refresh` | boolean | 否 | 是否强制刷新缓存（已废弃） | false |
+
+**注意**:
+- `code` 和 `codes` 参数不能同时使用
+- 不传任何参数时返回所有股票的 PE 数据（使用缓存，1小时有效期）
+- 传入 `code` 参数时返回指定股票的 PE 数据
+- 传入 `codes` 参数时（如 "600000,600001,600002"）返回批量查询结果
 
 **响应**:
 ```json
@@ -812,6 +820,89 @@ uv run uvicorn src.main:app --reload --port 8000
   "last_updated": "2026-03-13T10:30:00"
 }
 ```
+
+---
+
+#### 7.2.8 获取实时股价
+
+**端点**: `POST /api/realtime/price`
+
+**说明**: 根据股票代码和 M120 值获取最新收盘价和偏离度。用于 n8n 定时调用，获取股票的实时价格数据。
+
+**请求体**:
+```json
+{
+  "code": "600000",
+  "m120": 9.85
+}
+```
+
+**请求参数**:
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `code` | string | 是 | 股票代码（6位数字） |
+| `m120` | float | 是 | 120日均线值 |
+
+**响应**:
+```json
+{
+  "code": "600000",
+  "close": 10.20,
+  "deviation": 3.55,
+  "timestamp": "2026-03-14T15:00:00"
+}
+```
+
+**字段说明**:
+- `close`: 最新收盘价
+- `deviation`: 收盘价与M120的偏离度(%)，计算公式：(close - m120) / m120 * 100
+- `timestamp`: 数据获取时间
+
+---
+
+#### 7.2.9 批量获取股票行业/概念信息
+
+**端点**: `POST /api/stocks/info`
+
+**说明**: 批量查询股票的申万行业、概念板块、行业板块等信息。
+
+**请求体**:
+```json
+{
+  "codes": ["600000", "600001", "600002"]
+}
+```
+
+**请求参数**:
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `codes` | array<string> | 是 | 股票代码列表（至少1个） |
+
+**响应**:
+```json
+{
+  "items": [
+    {
+      "code": "600000",
+      "exchange": "沪市主板",
+      "sw_level1": "银行",
+      "sw_level2": "银行",
+      "sw_level3": "股份制银行",
+      "concept_board": "高股息;中证红利",
+      "industry_board": "银行"
+    }
+  ],
+  "total": 3
+}
+```
+
+**字段说明**:
+- `exchange`: 交易所（沪市主板/深市主板）
+- `sw_level1/2/3`: 申万一/二/三级行业
+- `concept_board`: 概念板块（分号分隔）
+- `industry_board`: 行业板块
 
 ---
 
@@ -924,6 +1015,52 @@ class StockPEResponse(BaseModel):
     total: int                       # 总记录数
     items: list[StockPE]             # 股票PE列表
     last_updated: Optional[str]      # 数据最后更新时间
+```
+
+#### 7.3.11 RealtimePriceRequest
+
+```python
+class RealtimePriceRequest(BaseModel):
+    code: str              # 股票代码
+    m120: float            # 120日均线值
+```
+
+#### 7.3.12 RealtimePriceResponse
+
+```python
+class RealtimePriceResponse(BaseModel):
+    code: str                          # 股票代码
+    close: Optional[float]             # 最新收盘价
+    deviation: Optional[float]         # 偏离度(%)
+    timestamp: Optional[str]           # 数据获取时间
+```
+
+#### 7.3.13 StockInfo
+
+```python
+class StockInfo(BaseModel):
+    code: str                          # 股票代码
+    exchange: Optional[str]            # 交易所
+    sw_level1: Optional[str]           # 申万一级行业
+    sw_level2: Optional[str]           # 申万二级行业
+    sw_level3: Optional[str]           # 申万三级行业
+    concept_board: Optional[str]       # 概念板块
+    industry_board: Optional[str]      # 行业板块
+```
+
+#### 7.3.14 StockInfoRequest
+
+```python
+class StockInfoRequest(BaseModel):
+    codes: list[str]         # 股票代码列表（至少1个）
+```
+
+#### 7.3.15 StockInfoResponse
+
+```python
+class StockInfoResponse(BaseModel):
+    items: list[StockInfo]   # 股票信息列表
+    total: int               # 总记录数
 ```
 
 ---
@@ -1062,6 +1199,120 @@ def check_file_exists(self) -> bool
 
 **返回**:
 - `bool`: 文件是否存在
+
+---
+
+### 8.3 RealtimePriceService - 实时股价服务
+
+**位置**: `src/services/realtime_service.py`
+
+#### 8.3.1 初始化
+
+```python
+def __init__(self)
+```
+
+**特性**:
+- 从 akshare 获取股票实时分时数据
+- 返回最新收盘价
+- 根据收盘价和 M120 计算偏离度
+
+#### 8.3.2 获取实时收盘价
+
+```python
+def get_realtime_close(self, code: str) -> Optional[float]
+```
+
+**参数**:
+- `code` (str): 6位股票代码
+
+**返回**:
+- `float` | `None`: 最新收盘价，失败返回 None
+
+#### 8.3.3 计算偏离度
+
+```python
+def calculate_deviation(self, close: float, m120: float) -> Optional[float]
+```
+
+**参数**:
+- `close` (float): 最新收盘价
+- `m120` (float): 120日均线值
+
+**返回**:
+- `float` | `None`: 偏离度(%) = (close - m120) / m120 * 100
+
+#### 8.3.4 获取服务单例
+
+```python
+def get_realtime_service() -> RealtimePriceService
+```
+
+**返回**:
+- `RealtimePriceService`: 服务实例单例
+
+---
+
+### 8.4 StockInfoService - 股票信息服务
+
+**位置**: `src/services/stock_info_service.py`
+
+#### 8.4.1 初始化
+
+```python
+def __init__(self, data_reader)
+```
+
+**参数**:
+- `data_reader` (DataReader): DataReader 实例
+
+**特性**:
+- 从本地数据文件批量查询股票的申万行业信息
+- 批量查询股票的概念板块信息
+- 批量查询股票的行业板块信息
+
+#### 8.4.2 批量获取股票信息
+
+```python
+def get_stocks_info(self, codes: list[str]) -> dict[str, dict]
+```
+
+**参数**:
+- `codes` (list[str]): 股票代码列表
+
+**返回**:
+- `dict[str, dict]`: {股票代码: {
+    "sw_level1": str,
+    "sw_level2": str,
+    "sw_level3": str,
+    "concept_board": str,
+    "industry_board": str,
+    "exchange": str,
+}} 字典
+
+#### 8.4.3 获取单只股票信息
+
+```python
+def get_stock_info(self, code: str) -> Optional[dict]
+```
+
+**参数**:
+- `code` (str): 股票代码
+
+**返回**:
+- `dict` | `None`: 股票信息字典，如果不存在返回 None
+
+#### 8.4.4 获取服务单例
+
+```python
+def get_stock_info_service(data_reader) -> StockInfoService
+```
+
+**参数**:
+- `data_reader` (DataReader): DataReader 实例
+
+**返回**:
+- `StockInfoService`: 服务实例单例
 
 ---
 
