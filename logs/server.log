@@ -566,3 +566,38 @@
 2026-03-14 10:22:43 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
 2026-03-14 10:22:43 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
 2026-03-14 10:22:43 - dividend-select - INFO - M120 数据文件加载成功，共 76 条记录
+2026-03-14 16:38:29 - dividend-select - INFO - ==================================================
+2026-03-14 16:38:29 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-14 16:38:29 - dividend-select - INFO - 版本: 1.0.0
+2026-03-14 16:38:29 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-14 16:38:29 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 16:38:29 - dividend-select - INFO - ==================================================
+2026-03-14 16:38:29 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 16:38:29 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-14 16:38:29 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-14 16:38:29 - dividend-select - INFO - M120 数据文件不存在，请调用 POST /api/m120/refresh 接口刷新数据
+2026-03-14 16:40:14 - dividend-select - INFO - ==================================================
+2026-03-14 16:40:14 - dividend-select - INFO - dividend-select 服务启动中...
+2026-03-14 16:40:14 - dividend-select - INFO - 版本: 1.0.0
+2026-03-14 16:40:14 - dividend-select - INFO - 服务器地址: 0.0.0.0:8092
+2026-03-14 16:40:14 - dividend-select - INFO - 数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 16:40:14 - dividend-select - INFO - ==================================================
+2026-03-14 16:40:14 - src.services.data_reader - INFO - 读取数据文件: F:\github\person_project\personal-web\backend\dividend-select\data\近3年股息率汇总.csv
+2026-03-14 16:40:14 - src.services.data_reader - INFO - 数据加载成功，共 187 条记录
+2026-03-14 16:40:14 - dividend-select - INFO - 数据文件加载成功，共 187 条记录
+2026-03-14 16:40:14 - dividend-select - INFO - M120 数据文件不存在，请调用 POST /api/m120/refresh 接口刷新数据
+2026-03-14 16:40:51 - src.api.routes - INFO - 开始刷新股息率数据，min_dividend=8
+2026-03-14 16:40:51 - src.api.routes - INFO - Step 1: 获取股票列表...
+2026-03-14 16:40:57 - src.api.routes - INFO - 获取到 161 只符合条件的股票
+2026-03-14 16:40:57 - src.api.routes - INFO - 已存在 187 只股票数据，将跳过
+2026-03-14 16:40:57 - src.api.routes - INFO - 所有股票已处理完成，无需重新计算
+2026-03-14 16:41:20 - src.api.routes - INFO - 开始刷新股息率数据，min_dividend=8
+2026-03-14 16:41:20 - src.api.routes - INFO - Step 1: 获取股票列表...
+2026-03-14 16:41:26 - src.api.routes - INFO - 获取到 161 只符合条件的股票
+2026-03-14 16:41:26 - src.api.routes - INFO - 已存在 187 只股票数据，将跳过
+2026-03-14 16:41:26 - src.api.routes - INFO - 所有股票已处理完成，无需重新计算
+2026-03-14 16:41:26 - src.api.routes - INFO - 开始刷新股息率数据，min_dividend=8
+2026-03-14 16:41:26 - src.api.routes - INFO - Step 1: 获取股票列表...
+2026-03-14 16:41:31 - src.api.routes - INFO - 获取到 161 只符合条件的股票
+2026-03-14 16:41:31 - src.api.routes - INFO - 已存在 187 只股票数据，将跳过
+2026-03-14 16:41:31 - src.api.routes - INFO - 所有股票已处理完成，无需重新计算

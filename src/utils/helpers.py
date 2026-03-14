@@ -198,17 +198,20 @@ def get_exchange(code) -> str:
 def load_csv_data(filename: str, date_str: Optional[str] = None) -> Optional[pd.DataFrame]:
     """
     加载CSV数据文件
-    优先从当前目录读取，不存在则从月度目录读取
+    自动添加日期后缀，优先从当前目录读取，不存在则从月度目录读取
 
     Args:
-        filename: 文件名
+        filename: 文件名（如：红利指数持仓汇总.csv）
         date_str: 日期字符串（YYYY-MM格式），None则使用当前月份
 
     Returns:
         DataFrame数据，失败返回None
     """
+    # 添加日期后缀
+    filename_with_suffix = get_filename_with_date_suffix(filename, date_str)
+
     # 先尝试从当前目录读取
-    filepath = DATA_DIR / filename
+    filepath = DATA_DIR / filename_with_suffix
     if filepath.exists():
         try:
             return pd.read_csv(filepath, encoding="utf-8-sig")
@@ -218,7 +221,7 @@ def load_csv_data(filename: str, date_str: Optional[str] = None) -> Optional[pd.
     # 不存在则从月度目录读取
     if date_str is None:
         date_str = get_current_date_dir()
-    filepath = DATA_DIR / date_str / filename
+    filepath = DATA_DIR / date_str / filename_with_suffix
     if filepath.exists():
         try:
             return pd.read_csv(filepath, encoding="utf-8-sig")
@@ -228,25 +231,36 @@ def load_csv_data(filename: str, date_str: Optional[str] = None) -> Optional[pd.
     return None
 
 
-def save_csv_data(df: pd.DataFrame, filename: str, date_str: Optional[str] = None) -> bool:
+def save_csv_data(df: pd.DataFrame, filename: str, date_str: Optional[str] = None, add_date_column: bool = False) -> bool:
     """
     保存数据到CSV文件
-    如果指定date_str，则保存到月度目录，否则保存到当前目录
+    自动添加日期后缀，如果指定date_str，则保存到月度目录，否则保存到当前目录
 
     Args:
         df: DataFrame数据
         filename: 文件名
         date_str: 日期字符串（YYYY-MM格式），None则保存到当前目录
+        add_date_column: 是否添加日期列（用于M120和PE数据）
 
     Returns:
         是否保存成功
     """
     try:
         LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+        # 添加日期后缀
+        filename_with_suffix = get_filename_with_date_suffix(filename, date_str)
+
+        # 如果需要添加日期列
+        if add_date_column:
+            df = df.copy()
+            df["日期"] = date_str if date_str else get_current_date_dir()
+
         if date_str:
-            filepath = DATA_DIR / date_str / filename
+            filepath = DATA_DIR / date_str / filename_with_suffix
         else:
-            filepath = DATA_DIR / filename
+            filepath = DATA_DIR / filename_with_suffix
+
         filepath.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(filepath, index=False, encoding="utf-8-sig")
         return True
@@ -257,7 +271,7 @@ def save_csv_data(df: pd.DataFrame, filename: str, date_str: Optional[str] = Non
 def append_csv_row(row_data: dict, filename: str, date_str: Optional[str] = None) -> bool:
     """
     追加单行数据到CSV文件
-    如果指定date_str，则追加到月度目录，否则追加到当前目录
+    自动添加日期后缀，如果指定date_str，则追加到月度目录，否则追加到当前目录
 
     Args:
         row_data: 行数据字典
@@ -268,10 +282,13 @@ def append_csv_row(row_data: dict, filename: str, date_str: Optional[str] = None
         是否追加成功
     """
     try:
+        # 添加日期后缀
+        filename_with_suffix = get_filename_with_date_suffix(filename, date_str)
+
         if date_str:
-            filepath = DATA_DIR / date_str / filename
+            filepath = DATA_DIR / date_str / filename_with_suffix
         else:
-            filepath = DATA_DIR / filename
+            filepath = DATA_DIR / filename_with_suffix
         filepath.parent.mkdir(parents=True, exist_ok=True)
 
         # 文件存在则追加，不存在则创建
@@ -291,7 +308,7 @@ def append_csv_row(row_data: dict, filename: str, date_str: Optional[str] = None
 def load_existing_codes(filename: str, date_str: Optional[str] = None) -> set[str]:
     """
     读取CSV中已存在的股票代码
-    优先从当前目录读取，不存在则从月度目录读取
+    自动添加日期后缀，优先从当前目录读取，不存在则从月度目录读取
 
     Args:
         filename: 文件名
@@ -300,8 +317,22 @@ def load_existing_codes(filename: str, date_str: Optional[str] = None) -> set[st
     Returns:
         股票代码集合
     """
-    df = load_csv_data(filename, date_str)
-    if df is None:
+    # 添加日期后缀
+    filename_with_suffix = get_filename_with_date_suffix(filename, date_str)
+
+    # 先尝试从当前目录读取
+    filepath = DATA_DIR / filename_with_suffix
+    if not filepath.exists():
+        if date_str is None:
+            date_str = get_current_date_dir()
+        filepath = DATA_DIR / date_str / filename_with_suffix
+
+    if not filepath.exists():
+        return set()
+
+    try:
+        df = pd.read_csv(filepath, encoding="utf-8-sig")
+    except Exception:
         return set()
 
     if "股票代码" not in df.columns:

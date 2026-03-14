@@ -24,6 +24,9 @@ from src.api.models import (
     StockListResponse,
     StockPEResponse,
     StockPE,
+    RefreshRequest,
+    RefreshResponse,
+    RefreshStats,
 )
 from src.services.data_reader import DataReader
 from src.services.filter_service import FilterService
@@ -671,3 +674,177 @@ async def get_stocks_info(request: StockInfoRequest):
     except Exception as e:
         logger.error(f"获取股票信息失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取股票信息失败: {str(e)}")
+
+
+# ========== 股息率刷新接口 ==========
+
+
+# 全局并发控制标志
+_is_refreshing: bool = False
+
+
+@router.post("/dividend/refresh", response_model=RefreshResponse)
+async def refresh_dividend_data(request: RefreshRequest):
+    """
+    刷新股息率核心数据
+
+    该接口用于获取红利指数持仓、计算股息率，并保存到数据文件。
+    支持增量更新（断点续传），跳过已处理的股票。
+
+    主要用于 n8n 定时任务调用。
+
+    请求参数：
+    - min_dividend: 最小分红次数阈值（默认5）
+
+    返回数据：
+    - success: 是否成功
+    - message: 操作结果消息
+    - stats: 统计信息
+      - total_processed: 处理总数
+      - new_or_updated: 新增/更新数
+      - skipped: 跳过数（已存在）
+      - file_path: 文件路径
+      - start_time: 开始时间
+      - end_time: 结束时间
+
+    注意：
+    - 该接口耗时较长（30秒-5分钟），建议在非高峰期调用
+    - 如果刷新正在进行中，将返回 409 Conflict 错误
+    - 部分股票处理失败不影响整体，会记录错误日志
+    """
+    global _is_refreshing
+
+    # 并发控制
+    if _is_refreshing:
+        logger.warning("刷新请求被拒绝：已有刷新任务正在进行中")
+        raise HTTPException(
+            status_code=409,
+            detail="刷新正在进行中，请稍后再试"
+        )
+
+    start_time = datetime.now()
+
+    try:
+        # 设置并发标志
+        _is_refreshing = True
+        logger.info(f"开始刷新股息率数据，min_dividend={request.min_dividend}")
+
+        # 导入必要的模块
+        from src.core import DividendCalculator
+        from src.data import IndexHoldingsFetcher
+        from src.utils import (
+            append_csv_row,
+            load_existing_codes,
+            get_current_date_dir,
+        )
+
+        # 获取当前日期目录
+        date_str = get_current_date_dir()
+        output_file = "近3年股息率汇总.csv"
+
+        # Step 1: 获取股票列表（使用 API 获取）
+        logger.info("Step 1: 获取股票列表...")
+        fetcher = IndexHoldingsFetcher(use_local=False)
+        stock_list = fetcher.get_stock_list(
+            min_dividend_count=request.min_dividend,
+            date_str=date_str
+        )
+
+        if not stock_list:
+            logger.error("获取股票列表失败，程序退出")
+            return RefreshResponse(
+                success=False,
+                message="获取股票列表失败",
+                stats=RefreshStats(
+                    total_processed=0,
+                    new_or_updated=0,
+                    skipped=0,
+                    file_path=f"data/{date_str}/{output_file}",
+                    start_time=start_time.isoformat(),
+                    end_time=datetime.now().isoformat(),
+                )
+            )
+
+        logger.info(f"获取到 {len(stock_list)} 只符合条件的股票")
+
+        # Step 2: 检查已处理的股票，实现断点续传
+        existing_codes = load_existing_codes(output_file, date_str)
+        initial_count = len(stock_list)
+
+        if existing_codes:
+            logger.info(f"已存在 {len(existing_codes)} 只股票数据，将跳过")
+            stock_list = [s for s in stock_list if str(s.code).zfill(6) not in existing_codes]
+
+        if not stock_list:
+            logger.info("所有股票已处理完成，无需重新计算")
+            end_time = datetime.now()
+            return RefreshResponse(
+                success=True,
+                message="所有股票已处理完成",
+                stats=RefreshStats(
+                    total_processed=initial_count,
+                    new_or_updated=0,
+                    skipped=initial_count,
+                    file_path=f"data/{date_str}/{output_file}",
+                    start_time=start_time.isoformat(),
+                    end_time=end_time.isoformat(),
+                )
+            )
+
+        logger.info(f"待处理 {len(stock_list)} 只股票")
+
+        # Step 3: 计算股息率并增量写入
+        logger.info("Step 3: 计算股息率（增量写入）...")
+
+        success_count = 0
+        failed_count = 0
+
+        def on_stock_complete(result):
+            """每计算完一个股票，追加写入CSV"""
+            nonlocal success_count
+            try:
+                append_csv_row(result.to_dict(), output_file, date_str)
+                success_count += 1
+                logger.info(f"已保存 {result.code} {result.name}")
+            except Exception as e:
+                logger.error(f"保存 {result.code} 失败: {e}")
+                failed_count += 1
+
+        calculator = DividendCalculator()
+        calculator.calculate_all(stock_list, on_complete=on_stock_complete)
+
+        end_time = datetime.now()
+        skipped_count = initial_count - len(stock_list)
+
+        logger.info(
+            f"刷新完成: 处理总数={initial_count}, "
+            f"成功={success_count}, 失败={failed_count}, 跳过={skipped_count}"
+        )
+
+        return RefreshResponse(
+            success=True,
+            message=f"刷新完成，成功更新 {success_count} 只股票",
+            stats=RefreshStats(
+                total_processed=initial_count,
+                new_or_updated=success_count,
+                skipped=skipped_count,
+                file_path=f"data/{date_str}/{output_file}",
+                start_time=start_time.isoformat(),
+                end_time=end_time.isoformat(),
+            )
+        )
+
+    except HTTPException:
+        # 重新抛出 HTTP 异常（如并发冲突）
+        raise
+    except Exception as e:
+        logger.error(f"刷新股息率数据失败: {e}")
+        end_time = datetime.now()
+        raise HTTPException(
+            status_code=500,
+            detail=f"刷新失败: {str(e)}"
+        )
+    finally:
+        # 确保并发标志被清除
+        _is_refreshing = False
+        logger.debug("并发控制标志已清除")

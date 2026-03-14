@@ -4,7 +4,7 @@
 
 本文档描述项目中所有对外暴露的 API 接口，包括类、方法和函数的调用规范。
 
-**文档版本**: v1.6
+**文档版本**: v1.7
 **生成时间**: 2026-03-14
 **状态**: 与代码实现同步
 
@@ -12,6 +12,7 @@
 
 | 日期 | 版本 | 变更内容 |
 |------|------|----------|
+| 2026-03-14 | v1.7 | 新增股息率刷新接口（支持增量更新和断点续传）；CSV文件添加日期后缀（YYYY-MM格式） |
 | 2026-03-14 | v1.6 | 修复股息率计算方式，改为使用不复权价格；API默认筛选阈值调整为5% |
 | 2026-03-14 | v1.5 | 新增实时股价查询接口和股票行业/概念信息查询接口；PE接口新增批量查询参数 |
 | 2026-03-13 | v1.4 | M120 接口新增收盘价和偏离度字段 |
@@ -907,6 +908,67 @@ uv run uvicorn src.main:app --reload --port 8000
 
 ---
 
+#### 7.2.10 刷新股息率数据
+
+**端点**: `POST /api/dividend/refresh`
+
+**说明**: 刷新股息率核心数据。获取红利指数持仓、计算股息率并保存到数据文件。支持增量更新（断点续传），跳过已处理的股票。
+
+**请求体**:
+```json
+{
+  "min_dividend": 5
+}
+```
+
+**请求参数**:
+
+| 参数 | 类型 | 必填 | 说明 | 默认值 |
+|------|------|------|------|--------|
+| `min_dividend` | int | 否 | 最小分红次数阈值 | 5 |
+
+**响应**:
+```json
+{
+  "success": true,
+  "message": "刷新完成，成功更新 20 只股票",
+  "stats": {
+    "total_processed": 150,
+    "new_or_updated": 20,
+    "skipped": 130,
+    "file_path": "data/2026-03/近3年股息率汇总.csv",
+    "start_time": "2026-03-14T10:00:00",
+    "end_time": "2026-03-14T10:02:30"
+  }
+}
+```
+
+**字段说明**:
+- `total_processed`: 处理总数（符合条件的股票数量）
+- `new_or_updated`: 新增/更新数
+- `skipped`: 跳过数（已存在的股票）
+- `file_path`: 输出文件路径（带日期后缀）
+- `start_time`: 开始时间 (ISO 8601)
+- `end_time`: 结束时间 (ISO 8601)
+
+**注意**:
+- 该接口耗时较长（30秒-5分钟），建议在非高峰期调用
+- 支持增量更新，自动跳过已处理的股票
+- 如果刷新正在进行中，将返回 409 Conflict 错误
+- 输出文件自动保存到 `data/YYYY-MM/` 目录，文件名带日期后缀
+
+**错误响应示例**:
+
+并发冲突:
+```json
+{
+  "detail": "刷新正在进行中，请稍后再试"
+}
+```
+HTTP 状态码：409 Conflict
+
+---
+
 ### 7.3 数据模型 (src/api/models.py)
 
 #### 7.3.1 DividendStock
@@ -1062,6 +1124,34 @@ class StockInfoRequest(BaseModel):
 class StockInfoResponse(BaseModel):
     items: list[StockInfo]   # 股票信息列表
     total: int               # 总记录数
+```
+
+#### 7.3.16 RefreshStats
+
+```python
+class RefreshStats(BaseModel):
+    total_processed: int = Field(..., description="处理总数")
+    new_or_updated: int = Field(..., description="新增/更新数")
+    skipped: int = Field(..., description="跳过数（已存在）")
+    file_path: str = Field(..., description="文件路径")
+    start_time: str = Field(..., description="开始时间 (ISO 8601)")
+    end_time: str = Field(..., description="结束时间 (ISO 8601)")
+```
+
+#### 7.3.17 RefreshRequest
+
+```python
+class RefreshRequest(BaseModel):
+    min_dividend: int = Field(5, description="最小分红次数阈值，默认5", ge=1)
+```
+
+#### 7.3.18 RefreshResponse
+
+```python
+class RefreshResponse(BaseModel):
+    success: bool = Field(..., description="是否成功")
+    message: str = Field(..., description="操作结果消息")
+    stats: RefreshStats = Field(..., description="统计信息")
 ```
 
 ---

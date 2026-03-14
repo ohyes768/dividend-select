@@ -238,3 +238,34 @@ class StockInfoResponse(BaseModel):
     """
     items: list[StockInfo] = Field(..., description="股票信息列表")
     total: int = Field(..., description="总记录数")
+
+
+# ========== 股息率刷新相关模型 ==========
+
+
+class RefreshStats(BaseModel):
+    """
+    刷新统计信息模型
+    """
+    total_processed: int = Field(..., description="处理总数")
+    new_or_updated: int = Field(..., description="新增/更新数")
+    skipped: int = Field(..., description="跳过数（已存在）")
+    file_path: str = Field(..., description="文件路径")
+    start_time: str = Field(..., description="开始时间 (ISO 8601)")
+    end_time: str = Field(..., description="结束时间 (ISO 8601)")
+
+
+class RefreshRequest(BaseModel):
+    """
+    股息率刷新请求模型
+    """
+    min_dividend: int = Field(5, description="最小分红次数阈值，默认5", ge=1)
+
+
+class RefreshResponse(BaseModel):
+    """
+    股息率刷新响应模型
+    """
+    success: bool = Field(..., description="是否成功")
+    message: str = Field(..., description="操作结果消息")
+    stats: RefreshStats = Field(..., description="统计信息")
