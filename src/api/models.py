@@ -269,3 +269,25 @@ class RefreshResponse(BaseModel):
     success: bool = Field(..., description="是否成功")
     message: str = Field(..., description="操作结果消息")
     stats: RefreshStats = Field(..., description="统计信息")
+
+
+# ========== 板块相关模型 ==========
+
+
+class BoardInfo(BaseModel):
+    """
+    股票板块信息模型
+    """
+    code: str = Field(..., description="股票代码")
+    name: str = Field(..., description="股票名称")
+    concept_board: Optional[str] = Field(None, description="概念板块")
+    industry_board: Optional[str] = Field(None, description="行业板块")
+
+
+class BoardInfoResponse(BaseModel):
+    """
+    板块信息响应模型
+    """
+    total: int = Field(..., description="总记录数")
+    items: list[BoardInfo] = Field(..., description="板块信息列表")
+    last_updated: Optional[str] = Field(None, description="数据最后更新时间")

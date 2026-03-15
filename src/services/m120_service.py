@@ -12,7 +12,7 @@ from pydantic import validate_call
 
 from src.utils.config import AppConfig, PROJECT_ROOT
 from src.utils.logger import setup_logger
-from src.utils.helpers import get_date_path
+from src.utils.helpers import get_current_date_dir, DATA_DIR
 
 logger = setup_logger(__name__)
 
@@ -46,9 +46,8 @@ class M120Service:
     def _ensure_data_dir(self) -> None:
         """确保数据目录存在"""
         if self.M120_CSV_FILE is None:
-            from src.utils.helpers import get_current_date_dir, get_filename_with_date_suffix
             date_str = self.date_str if self.date_str else get_current_date_dir()
-            self.M120_CSV_FILE = get_date_path("M120数据.csv", date_str)
+            self.M120_CSV_FILE = DATA_DIR / date_str / "M120数据.csv"
         self.M120_CSV_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     def _get_stock_code_with_prefix(self, code: str) -> str:
@@ -136,8 +135,7 @@ class M120Service:
         results = []
         total = len(codes)
 
-        # 获取日期列值
-        from src.utils.helpers import get_current_date_dir
+        # 获取日期列值（用于记录）
         date_value = self.date_str if self.date_str else get_current_date_dir()
 
         for i, code in enumerate(codes, 1):

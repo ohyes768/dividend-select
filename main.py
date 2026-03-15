@@ -2,22 +2,21 @@
 A股高股息率TOP50查询工具 - 主程序入口
 
 用法:
-    uv run python main.py                    # 获取最新持仓数据，跳过板块映射更新（默认）
+    uv run python main.py                    # 获取最新持仓数据
     uv run python main.py --use-local        # 使用本地已有数据（跳过API获取）
-    uv run python main.py --update-board     # 获取最新持仓数据 + 更新板块映射
     uv run python main.py --limit 10         # 限制处理10只股票（测试用）
     uv run python main.py --use-local --limit 10
 
 数据文件说明:
     - 所有CSV文件按月保存到 data/YYYY-MM/ 目录
-    - 移动文件：红利指数持仓汇总.csv、股票分红次数汇总.csv、个股板块映射.csv、M120数据.csv、PE数据.csv、近3年股息率汇总.csv
+    - 移动文件：红利指数持仓汇总.csv、股票分红次数汇总.csv、M120数据.csv、PE数据.csv、近3年股息率汇总.csv
 """
 import argparse
 from datetime import datetime
 
 import pandas as pd
 
-from src.data import IndexHoldingsFetcher, BoardInfoLoader, BoardMappingFetcher
+from src.data import IndexHoldingsFetcher
 from src.core import DividendCalculator
 from src.utils import setup_logger, save_csv_data, append_csv_row, load_existing_codes, move_all_data_files, get_current_date_dir
 from src.data.models import StockResult
@@ -37,11 +36,6 @@ def parse_args():
         "--use-local",
         action="store_true",
         help="使用本地已有数据（红利指数持仓汇总.csv、股票分红次数汇总.csv），跳过API获取",
-    )
-    parser.add_argument(
-        "--update-board",
-        action="store_true",
-        help="更新板块映射（需要调用API获取板块信息，默认跳过）",
     )
     parser.add_argument(
         "--limit",
@@ -126,7 +120,6 @@ def main():
     print("         A股高股息率TOP50查询工具")
     print("=" * 60)
     print(f"  使用本地数据: {'是' if args.use_local else '否'}")
-    print(f"  更新板块映射: {'是' if args.update_board else '否（默认跳过）'}")
     print(f"  处理数量限制: {args.limit if args.limit > 0 else '无限制'}")
     print(f"  最小分红次数: {args.min_dividend}")
     print(f"  日期目录: {date_str}")
@@ -153,19 +146,7 @@ def main():
 
     logger.info(f"获取到 {len(stock_list)} 只符合条件的股票")
 
-    # Step 2: 更新板块映射（仅指定 --update-board 时执行）
-    if args.update_board:
-        logger.info("Step 2: 更新板块映射...")
-        board_fetcher = BoardMappingFetcher(date_str=date_str)
-        if board_fetcher.update(show_progress=False, date_str=date_str):
-            # 板块映射已通过 save_to_csv(date_str) 保存到日期目录
-            pass
-        else:
-            logger.warning("板块映射更新失败，将继续使用本地数据")
-    else:
-        logger.info("Step 2: 跳过板块映射更新（使用本地数据）")
-
-    # Step 3: 检查已处理的股票，实现断点续传
+    # Step 2: 检查已处理的股票，实现断点续传
     existing_codes = load_existing_codes(OUTPUT_FILE, date_str)
     if existing_codes:
         logger.info(f"已存在 {len(existing_codes)} 只股票数据，将跳过")
@@ -181,8 +162,8 @@ def main():
     if args.limit > 0:
         stock_list = stock_list[:args.limit]
 
-    # Step 4: 计算股息率并增量写入（保存到 date_str 目录）
-    logger.info("Step 4: 计算股息率（增量写入）...")
+    # Step 3: 计算股息率并增量写入（保存到 date_str 目录）
+    logger.info("Step 3: 计算股息率（增量写入）...")
 
     def on_stock_complete(result: StockResult):
         """每计算完一个股票，追加写入CSV"""
