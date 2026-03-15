@@ -73,7 +73,15 @@ class AppConfig:
     def get_csv_file() -> Path:
         """获取 CSV 文件路径"""
         filename = get_config()["app"]["data"]["csv_file"]
-        return PROJECT_ROOT / filename
+        use_date_dir = get_config()["app"]["data"].get("date_dir", False)
+
+        if use_date_dir:
+            # 使用月度目录和日期后缀
+            from src.utils.helpers import DATA_DIR, get_current_date_dir, get_date_path
+            return get_date_path(filename, get_current_date_dir())
+        else:
+            # 原有逻辑：直接使用配置的路径
+            return PROJECT_ROOT / filename
 
     @staticmethod
     def get_encoding() -> str:

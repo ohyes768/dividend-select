@@ -8,8 +8,9 @@ app:
 
   # 数据配置
   data:
-    csv_file: "data/近3年股息率汇总.csv"
+    csv_file: "近3年股息率汇总.csv"
     encoding: "utf-8-sig"
+    date_dir: true  # 是否使用月度目录（YYYY-MM格式）
 
   # 日志配置
   logging:
