@@ -38,6 +38,11 @@ def parse_args():
         help="使用本地已有数据（红利指数持仓汇总.csv、股票分红次数汇总.csv、个股板块映射.csv），跳过API获取和板块更新",
     )
     parser.add_argument(
+        "--skip-board",
+        action="store_true",
+        help="跳过板块映射更新（使用本地已有数据），减少接口调用",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=0,
@@ -120,6 +125,7 @@ def main():
     print("         A股高股息率TOP50查询工具")
     print("=" * 60)
     print(f"  使用本地数据: {'是' if args.use_local else '否'}")
+    print(f"  跳过板块映射: {'是' if args.skip_board else '否'}")
     print(f"  处理数量限制: {args.limit if args.limit > 0 else '无限制'}")
     print(f"  最小分红次数: {args.min_dividend}")
     print(f"  日期目录: {date_str}")
@@ -147,7 +153,7 @@ def main():
     logger.info(f"获取到 {len(stock_list)} 只符合条件的股票")
 
     # Step 2: 更新板块映射（仅默认模式，保存到 date_str 目录）
-    if not args.use_local:
+    if not args.use_local and not args.skip_board:
         logger.info("Step 2: 更新板块映射...")
         board_fetcher = BoardMappingFetcher(date_str=date_str)
         if board_fetcher.update(show_progress=False, date_str=date_str):
