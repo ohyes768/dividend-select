@@ -8,6 +8,8 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 
 from src.api.models import (
+    BoardInfo,
+    BoardInfoResponse,
     DividendStock,
     HealthResponse,
     M120ListResponse,
@@ -674,6 +676,192 @@ async def get_stocks_info(request: StockInfoRequest):
     except Exception as e:
         logger.error(f"获取股票信息失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取股票信息失败: {str(e)}")
+
+
+# ========== 板块映射刷新接口 ==========
+
+
+@router.get("/board", response_model=BoardInfoResponse)
+async def get_board_info(
+    code: Optional[str] = Query(None, description="股票代码（查询单只股票）"),
+    codes: Optional[str] = Query(None, description="股票代码列表，逗号分隔（批量查询）")
+):
+    """
+    获取股票板块信息
+
+    参数说明：
+    - code: 查询单只股票
+    - codes: 批量查询，格式如 "600000,600001,600002"
+
+    返回数据：
+    - code: 股票代码
+    - name: 股票名称
+    - concept_board: 概念板块
+    - industry_board: 行业板块
+    """
+    if data_reader is None:
+        raise HTTPException(status_code=500, detail="服务未初始化")
+
+    if code and codes:
+        raise HTTPException(status_code=400, detail="不能同时使用 code 和 codes 参数")
+
+    # 获取当前日期目录下的板块映射文件
+    from src.utils.helpers import get_current_date_dir, DATA_DIR
+    date_str = get_current_date_dir()
+    board_file = DATA_DIR / date_str / "个股板块映射.csv"
+
+    if not board_file.exists():
+        raise HTTPException(status_code=404, detail="板块数据文件不存在，请先调用 /board/refresh")
+
+    try:
+        df = pd.read_csv(board_file, encoding="utf-8-sig")
+    except Exception as e:
+        logger.error(f"读取板块数据失败: {e}")
+        raise HTTPException(status_code=500, detail="读取板块数据失败")
+
+    items = []
+
+    if code:
+        # 查询单只股票
+        row = df[df["股票代码"].astype(str).str.zfill(6) == str(code).zfill(6)]
+        if row.empty:
+            raise HTTPException(status_code=404, detail=f"股票 {code} 的板块数据不存在")
+
+        row = row.iloc[0]
+        items.append(BoardInfo(
+            code=str(row["股票代码"]).zfill(6),
+            name=str(row["股票简称"]),
+            concept_board=str(row["概念板块"]) if pd.notna(row["概念板块"]) else None,
+            industry_board=str(row["行业板块"]) if pd.notna(row["行业板块"]) else None,
+        ))
+    elif codes:
+        # 批量查询指定股票
+        code_list = [c.strip() for c in codes.split(",") if c.strip()]
+        if not code_list:
+            raise HTTPException(status_code=400, detail="codes 参数不能为空")
+
+        codes_formatted = [str(c).zfill(6) for c in code_list]
+        df_filtered = df[df["股票代码"].astype(str).str.zfill(6).isin(codes_formatted)]
+
+        for _, row in df_filtered.iterrows():
+            items.append(BoardInfo(
+                code=str(row["股票代码"]).zfill(6),
+                name=str(row["股票简称"]),
+                concept_board=str(row["概念板块"]) if pd.notna(row["概念板块"]) else None,
+                industry_board=str(row["行业板块"]) if pd.notna(row["行业板块"]) else None,
+            ))
+    else:
+        # 不传参数时返回空列表，避免返回全部数据
+        items = []
+
+    # 获取文件最后修改时间
+    last_updated = None
+    if board_file.exists():
+        timestamp = board_file.stat().st_mtime
+        last_updated = datetime.fromtimestamp(timestamp).isoformat()
+
+    return BoardInfoResponse(
+        total=len(items),
+        items=items,
+        last_updated=last_updated
+    )
+
+
+# 全局并发控制标志
+_is_refreshing_board: bool = False
+
+
+@router.post("/board/refresh")
+async def refresh_board_mapping():
+    """
+    刷新个股板块映射数据
+
+    该接口用于获取所有红利指数持仓股票的概念板块和行业板块信息，并保存到CSV文件。
+    适用于 n8n 定时任务调用，建议每周或每月更新一次。
+
+    返回：
+    - success: 是否成功
+    - message: 处理结果信息
+    - stats: 统计信息
+      - total_stocks: 总股票数
+      - success_count: 成功获取数
+      - failed_count: 失败数
+      - file_path: 文件路径
+      - start_time: 开始时间
+      - end_time: 结束时间
+
+    注意：
+    - 该接口耗时较长（约3-5分钟，取决于股票数量）
+    - 如果刷新正在进行中，将返回 409 Conflict 错误
+    """
+    global _is_refreshing_board
+
+    # 并发控制
+    if _is_refreshing_board:
+        logger.warning("板块映射刷新请求被拒绝：已有刷新任务正在进行中")
+        raise HTTPException(
+            status_code=409,
+            detail="板块映射刷新正在进行中，请稍后再试"
+        )
+
+    start_time = datetime.now()
+
+    try:
+        # 设置并发标志
+        _is_refreshing_board = True
+        logger.info("开始刷新板块映射数据")
+
+        # 导入必要的模块
+        from src.data import BoardMappingFetcher
+        from src.utils import get_current_date_dir
+
+        # 获取当前日期目录
+        date_str = get_current_date_dir()
+        output_file = "个股板块映射.csv"
+
+        # 创建板块映射获取器
+        fetcher = BoardMappingFetcher(date_str=date_str)
+
+        # 更新板块映射
+        success = fetcher.update(show_progress=True, date_str=date_str)
+
+        end_time = datetime.now()
+
+        if success:
+            logger.info(f"板块映射刷新完成")
+            return {
+                "success": True,
+                "message": "板块映射刷新完成",
+                "stats": {
+                    "total_stocks": len(fetcher.stock_names),
+                    "success_count": len(fetcher.stock_names) - len(fetcher.failed_stocks),
+                    "failed_count": len(fetcher.failed_stocks),
+                    "file_path": f"data/{date_str}/{output_file}",
+                    "start_time": start_time.isoformat(),
+                    "end_time": end_time.isoformat(),
+                }
+            }
+        else:
+            logger.error("板块映射刷新失败")
+            raise HTTPException(
+                status_code=500,
+                detail="板块映射刷新失败"
+            )
+
+    except HTTPException:
+        # 重新抛出 HTTP 异常（如并发冲突）
+        raise
+    except Exception as e:
+        logger.error(f"刷新板块映射失败: {e}")
+        end_time = datetime.now()
+        raise HTTPException(
+            status_code=500,
+            detail=f"刷新失败: {str(e)}"
+        )
+    finally:
+        # 确保并发标志被清除
+        _is_refreshing_board = False
+        logger.debug("板块映射并发控制标志已清除")
 
 
 # ========== 股息率刷新接口 ==========

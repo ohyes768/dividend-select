@@ -9,9 +9,8 @@ from typing import Optional
 import akshare as ak
 import pandas as pd
 
-from src.utils.config import PROJECT_ROOT
+from src.utils.helpers import DATA_DIR, get_date_path, get_current_date_dir
 from src.utils.logger import setup_logger
-from src.utils.helpers import get_date_path, get_current_date_dir
 
 logger = setup_logger(__name__)
 
@@ -43,7 +42,7 @@ class PEDataService:
         """确保数据目录存在"""
         if self.PE_CSV_FILE is None:
             date_str = self.date_str if self.date_str else get_current_date_dir()
-            self.PE_CSV_FILE = get_date_path("PE数据.csv", date_str)
+            self.PE_CSV_FILE = DATA_DIR / date_str / "PE数据.csv"
         self.PE_CSV_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     def update_pe_data(self, codes: list[str] | None = None, show_progress: bool = True) -> int:
