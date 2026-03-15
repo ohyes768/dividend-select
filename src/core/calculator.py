@@ -43,6 +43,7 @@ class DividendCalculator:
             # 使用不复权价格计算股息率
             # 注意：股息率 = 分红 / 股价，分红是实际金额，股价也应该是实际价格
             # 后复权价格会把过去的分红加回去，导致股息率被严重低估
+            # akshare 接口: stock_zh_a_hist - A股历史行情数据
             df = ak.stock_zh_a_hist(symbol=code, adjust="")
             if df is not None and not df.empty:
                 # 标准化日期列
@@ -50,7 +51,7 @@ class DividendCalculator:
                 self._price_cache[code] = df
                 return df
         except Exception as e:
-            logger.warning(f"获取 {code} 价格数据失败: {e}")
+            logger.warning(f"获取 {code} 价格数据失败: {e} [接口: ak.stock_zh_a_hist]")
 
         return None
 
@@ -67,6 +68,7 @@ class DividendCalculator:
 
         try:
             # 使用 stock_history_dividend_detail 获取详细分红数据
+            # akshare 接口: stock_history_dividend_detail - A股历史分红详情
             df = ak.stock_history_dividend_detail(symbol=code, indicator="分红")
             if df is not None and not df.empty:
                 # 标准化日期列
@@ -86,7 +88,7 @@ class DividendCalculator:
                 self._dividend_cache[code] = df
                 return df
         except Exception as e:
-            logger.warning(f"获取 {code} 分红数据失败: {e}")
+            logger.warning(f"获取 {code} 分红数据失败: {e} [接口: ak.stock_history_dividend_detail]")
 
         return None
 
