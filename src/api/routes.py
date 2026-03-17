@@ -268,9 +268,16 @@ async def get_stocks(
     # 无分页，返回所有数据
     items = [_row_to_stock_model(row) for _, row in df.iterrows()]
 
+    # 获取数据文件最后修改时间
+    last_updated = None
+    if data_reader.check_csv_exists():
+        timestamp = data_reader.get_file_mtime()
+        last_updated = datetime.fromtimestamp(timestamp).isoformat()
+
     return StockListResponse(
         total=len(items),
-        items=items
+        items=items,
+        last_updated=last_updated
     )
 
 

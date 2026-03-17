@@ -107,6 +107,7 @@ class StockListResponse(BaseModel):
     """
     total: int = Field(..., description="总记录数")
     items: list[DividendStock] = Field(..., description="股票列表")
+    last_updated: Optional[str] = Field(None, description="数据最后更新时间")
 
 
 class StockDetailResponse(BaseModel):
