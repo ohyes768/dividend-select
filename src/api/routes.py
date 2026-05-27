@@ -44,6 +44,34 @@ logger = setup_logger(__name__)
 # 创建路由
 router = APIRouter()
 
+
+def get_last_4_quarters() -> list[tuple[int, int]]:
+    """返回前4个已过去季度的 (年份, 季度) 列表，最新在前
+
+    例如当前是2026年5月(Q2)，返回: [(2026,1), (2025,4), (2025,3), (2025,2)]
+    """
+    now = datetime.now()
+    year = now.year
+    month = now.month
+    # 当前季度（如果还在发展中则取上一季度作为"最新已完成"）
+    current_quarter = (month - 1) // 3 + 1
+
+    # 前4个季度从上一季度开始往前数
+    quarters = []
+    q = current_quarter - 1  # 从上一个完整季度开始
+    y = year
+    if q == 0:
+        q = 4
+        y -= 1
+
+    for _ in range(4):
+        quarters.append((y, q))
+        q -= 1
+        if q == 0:
+            q = 4
+            y -= 1
+    return quarters
+
 # 服务实例（在应用启动时初始化）
 data_reader: DataReader | None = None
 filter_service: FilterService | None = None
@@ -79,12 +107,13 @@ def set_services(
     stock_info_service = get_stock_info_service(data_reader)
 
 
-def _row_to_stock_model(row: pd.Series) -> DividendStock:
+def _row_to_stock_model(row: pd.Series, info: Optional[dict] = None) -> DividendStock:
     """
     将 DataFrame 行转换为股票数据模型
 
     Args:
         row: DataFrame 行
+        info: 可选的股票信息字典（含 sw_level1/2/3、concept_board、industry_board）
 
     Returns:
         股票数据模型
@@ -107,41 +136,40 @@ def _row_to_stock_model(row: pd.Series) -> DividendStock:
         """检查季度是否有数据"""
         return _to_float(row.get(f"{quarter}平均价")) is not None
 
-    # 构建季度数据
+    # 获取前4个季度，动态构建季度数据
+    last_4_quarters = get_last_4_quarters()
+    quarter_keys = ["q1", "q2", "q3", "q4"]
+
+    # 检查是否有任何季度有数据
+    has_any_quarter = any(
+        _has_quarter_data(f"{y}Q{q}") for y, q in last_4_quarters
+    )
+
     quarterly = None
-    if any(_has_quarter_data(q) for q in ["2025Q1", "2025Q2", "2025Q3", "2025Q4"]):
+    if has_any_quarter:
         from src.api.models import QuarterlyData, Quarter
-        quarterly = QuarterlyData(
-            q1=Quarter(
-                avg_price=_to_float(row.get("2025Q1平均价")),
-                dividend=_to_float(row.get("2025Q1分红(元/股)")),
-                yield_pct=_to_float(row.get("2025Q1股息率(%)")),
-            ) if _has_quarter_data("2025Q1") else None,
-            q2=Quarter(
-                avg_price=_to_float(row.get("2025Q2平均价")),
-                dividend=_to_float(row.get("2025Q2分红(元/股)")),
-                yield_pct=_to_float(row.get("2025Q2股息率(%)")),
-            ) if _has_quarter_data("2025Q2") else None,
-            q3=Quarter(
-                avg_price=_to_float(row.get("2025Q3平均价")),
-                dividend=_to_float(row.get("2025Q3分红(元/股)")),
-                yield_pct=_to_float(row.get("2025Q3股息率(%)")),
-            ) if _has_quarter_data("2025Q3") else None,
-            q4=Quarter(
-                avg_price=_to_float(row.get("2025Q4平均价")),
-                dividend=_to_float(row.get("2025Q4分红(元/股)")),
-                yield_pct=_to_float(row.get("2025Q4股息率(%)")),
-            ) if _has_quarter_data("2025Q4") else None,
-        )
+        quarterly_data = {}
+        for i, (y, q) in enumerate(last_4_quarters):
+            quarter_label = f"{y}Q{q}"
+            key = quarter_keys[i]
+            if _has_quarter_data(quarter_label):
+                quarterly_data[key] = Quarter(
+                    avg_price=_to_float(row.get(f"{quarter_label}平均价")),
+                    dividend=_to_float(row.get(f"{quarter_label}分红(元/股)")),
+                    yield_pct=_to_float(row.get(f"{quarter_label}股息率(%)")),
+                )
+            else:
+                quarterly_data[key] = None
+        quarterly = QuarterlyData(**quarterly_data)
 
     return DividendStock(
         code=str(row["股票代码"]).zfill(6),
         name=str(row["股票名称"]),
         exchange=str(row.get("交易所", "")),
         source_index=str(row.get("来源指数", "")) if pd.notna(row.get("来源指数")) else None,
-        sw_level1=None,
-        sw_level2=None,
-        sw_level3=None,
+        sw_level1=info.get("sw_level1") if info else None,
+        sw_level2=info.get("sw_level2") if info else None,
+        sw_level3=info.get("sw_level3") if info else None,
         concept_board=None,
         industry_board=None,
         avg_price_2025=_to_float(row.get("2025年平均价")),
@@ -185,28 +213,24 @@ def _extract_quarterly_data(row: pd.Series) -> QuarterlyData:
         except (ValueError, TypeError):
             return None
 
-    return QuarterlyData(
-        q1=Quarter(
-            avg_price=_to_float(row.get("2025Q1平均价")),
-            dividend=_to_float(row.get("2025Q1分红(元/股)")),
-            yield_pct=_to_float(row.get("2025Q1股息率(%)")),
-        ) if _to_float(row.get("2025Q1平均价")) else None,
-        q2=Quarter(
-            avg_price=_to_float(row.get("2025Q2平均价")),
-            dividend=_to_float(row.get("2025Q2分红(元/股)")),
-            yield_pct=_to_float(row.get("2025Q2股息率(%)")),
-        ) if _to_float(row.get("2025Q2平均价")) else None,
-        q3=Quarter(
-            avg_price=_to_float(row.get("2025Q3平均价")),
-            dividend=_to_float(row.get("2025Q3分红(元/股)")),
-            yield_pct=_to_float(row.get("2025Q3股息率(%)")),
-        ) if _to_float(row.get("2025Q3平均价")) else None,
-        q4=Quarter(
-            avg_price=_to_float(row.get("2025Q4平均价")),
-            dividend=_to_float(row.get("2025Q4分红(元/股)")),
-            yield_pct=_to_float(row.get("2025Q4股息率(%)")),
-        ) if _to_float(row.get("2025Q4平均价")) else None,
-    )
+    # 动态获取前4个季度
+    last_4_quarters = get_last_4_quarters()
+    quarter_keys = ["q1", "q2", "q3", "q4"]
+
+    quarterly_data = {}
+    for i, (y, q) in enumerate(last_4_quarters):
+        quarter_label = f"{y}Q{q}"
+        key = quarter_keys[i]
+        if _to_float(row.get(f"{quarter_label}平均价")) is not None:
+            quarterly_data[key] = Quarter(
+                avg_price=_to_float(row.get(f"{quarter_label}平均价")),
+                dividend=_to_float(row.get(f"{quarter_label}分红(元/股)")),
+                yield_pct=_to_float(row.get(f"{quarter_label}股息率(%)")),
+            )
+        else:
+            quarterly_data[key] = None
+
+    return QuarterlyData(**quarterly_data)
 
 
 @router.get("/", response_model=dict)
@@ -265,8 +289,14 @@ async def get_stocks(
     # 排序
     df = sort_service.sort_by_field(df, sort_by, sort_order)
 
+    # 批量查询申万行业信息
+    codes = df["股票代码"].astype(str).str.zfill(6).tolist()
+    info_map = {}
+    if stock_info_service is not None and codes:
+        info_map = stock_info_service.get_stocks_info(codes)
+
     # 无分页，返回所有数据
-    items = [_row_to_stock_model(row) for _, row in df.iterrows()]
+    items = [_row_to_stock_model(row, info_map.get(str(row["股票代码"]).zfill(6))) for _, row in df.iterrows()]
 
     # 获取数据文件最后修改时间
     last_updated = None
@@ -291,7 +321,11 @@ async def get_stock_detail(code: str):
     if row is None:
         raise HTTPException(status_code=404, detail=f"股票 {code} 不存在")
 
-    stock = _row_to_stock_model(row)
+    info = None
+    if stock_info_service is not None:
+        info = stock_info_service.get_stock_info(code)
+
+    stock = _row_to_stock_model(row, info)
     quarterly = _extract_quarterly_data(row)
 
     return StockDetailResponse(
@@ -343,8 +377,8 @@ async def get_stats():
 
     # CSV 最后修改时间
     csv_mtime = None
-    if data_reader.check_csv_exists():
-        timestamp = data_reader.get_file_mtime()
+    timestamp = data_reader.get_file_mtime()
+    if timestamp is not None:
         csv_mtime = datetime.fromtimestamp(timestamp).isoformat()
 
     return StatsResponse(
@@ -382,16 +416,16 @@ async def get_m120_stocks(
     # 读取股息率数据
     df = data_reader.read_csv()
 
-    # 筛选股息率 > 3
+    # 筛选股息率 >= min_yield
     yield_col = "3年平均股息率(%)"
     df["3年平均股息率(%)"] = pd.to_numeric(
         df[yield_col].replace("-", None),
         errors="coerce"
     )
-    df = df[df["3年平均股息率(%)"] > min_yield]
+    df = df[df["3年平均股息率(%)"] >= min_yield]
 
-    # 读取 M120 数据
-    m120_data = m120_service.read_m120_data()
+    # 读取 M120 数据和实时价格，实时计算偏离度
+    m120_data = m120_service.read_m120_with_deviation()
 
     # 排序
     df = sort_service.sort_by_field(df, sort_by, sort_order)
@@ -410,13 +444,16 @@ async def get_m120_stocks(
             m120=m120_info.get("m120"),
             close=m120_info.get("close"),
             deviation=m120_info.get("deviation"),
+            realtime=m120_info.get("realtime"),
+            realtime_deviation=m120_info.get("realtime_deviation"),
         ))
 
     # 获取 M120 文件最后修改时间
     last_updated = None
-    if m120_service.check_file_exists():
-        timestamp = m120_service.get_file_mtime()
-        last_updated = datetime.fromtimestamp(timestamp).isoformat()
+    if m120_service.check_m120_file_exists():
+        timestamp = m120_service.get_m120_file_mtime()
+        if timestamp:
+            last_updated = datetime.fromtimestamp(timestamp).isoformat()
 
     return M120ListResponse(
         total=len(items),
@@ -425,12 +462,46 @@ async def get_m120_stocks(
     )
 
 
+@router.get("/m120/status")
+async def get_m120_status():
+    """
+    获取 M120 数据状态
+
+    返回：
+    - needs_update: 是否需要更新（本周未更新过）
+    - last_updated: 上次更新时间
+    - file_exists: 文件是否存在
+    """
+    if m120_service is None:
+        raise HTTPException(status_code=500, detail="服务未初始化")
+
+    from datetime import datetime, timedelta
+
+    # 检查文件是否存在
+    file_exists = m120_service.check_m120_file_exists()
+
+    # 只有文件不存在时才需要更新
+    needs_update = not file_exists
+
+    if file_exists:
+        timestamp = m120_service.get_m120_file_mtime()
+        if timestamp:
+            last_updated_dt = datetime.fromtimestamp(timestamp)
+            last_updated = last_updated_dt.isoformat()
+
+    return {
+        "needs_update": needs_update,
+        "last_updated": last_updated,
+        "file_exists": file_exists
+    }
+
+
 @router.post("/m120/refresh")
 async def refresh_m120_data():
     """
     刷新 M120 数据
 
-    获取所有股息率 > 3 的股票的 120 日均线数据。
+    获取所有股息率 >= 4% 的股票的 120 日均线数据。
     该接口耗时较长，建议在非高峰期调用。
 
     返回：
@@ -445,13 +516,13 @@ async def refresh_m120_data():
         # 读取股息率数据
         df = data_reader.read_csv()
 
-        # 筛选股息率 > 3
+        # 筛选股息率 >= 4
         yield_col = "3年平均股息率(%)"
         df["3年平均股息率(%)"] = pd.to_numeric(
             df[yield_col].replace("-", None),
             errors="coerce"
         )
-        df = df[df["3年平均股息率(%)"] > 3]
+        df = df[df["3年平均股息率(%)"] >= 4]
 
         # 获取需要更新的股票代码列表
         codes = df["股票代码"].astype(str).str.zfill(6).tolist()
@@ -628,6 +699,53 @@ async def get_realtime_price(request: RealtimePriceRequest):
         raise HTTPException(status_code=500, detail=f"获取实时价格失败: {str(e)}")
 
 
+@router.post("/realtime/refresh")
+async def refresh_realtime_prices():
+    """
+    批量刷新所有股息率 >= 4% 股票的实时价格
+
+    使用 comrms 批量接口，一次API调用获取所有股票实时价格。
+    该接口每日调用一次即可，用于更新实时价格数据。
+
+    返回：
+    - success: 是否成功
+    - message: 处理结果信息
+    - count: 更新的股票数量
+    """
+    if data_reader is None or m120_service is None:
+        raise HTTPException(status_code=500, detail="服务未初始化")
+
+    try:
+        # 读取股息率数据
+        df = data_reader.read_csv()
+
+        # 筛选股息率 >= 4
+        yield_col = "3年平均股息率(%)"
+        df["3年平均股息率(%)"] = pd.to_numeric(
+            df[yield_col].replace("-", None),
+            errors="coerce"
+        )
+        df = df[df["3年平均股息率(%)"] >= 4]
+
+        # 获取需要更新的股票代码列表
+        codes = df["股票代码"].astype(str).str.zfill(6).tolist()
+
+        logger.info(f"开始批量刷新实时价格，共 {len(codes)} 只股票")
+
+        # 批量更新实时价格
+        count = m120_service.update_realtime_prices(codes, show_progress=True)
+
+        return {
+            "success": True,
+            "message": f"实时价格刷新完成，成功更新 {count} 只股票",
+            "count": count
+        }
+
+    except Exception as e:
+        logger.error(f"刷新实时价格失败: {e}")
+        raise HTTPException(status_code=500, detail=f"刷新失败: {str(e)}")
+
+
 # ========== 股票信息相关接口 ==========
 
 
@@ -712,10 +830,9 @@ async def get_board_info(
     if code and codes:
         raise HTTPException(status_code=400, detail="不能同时使用 code 和 codes 参数")
 
-    # 获取当前日期目录下的板块映射文件
-    from src.utils.helpers import get_current_date_dir, DATA_DIR
-    date_str = get_current_date_dir()
-    board_file = DATA_DIR / date_str / "个股板块映射.csv"
+    # 获取板块映射文件（固定在 data/ 目录）
+    from src.utils.helpers import DATA_DIR
+    board_file = DATA_DIR / "个股板块映射.csv"
 
     if not board_file.exists():
         raise HTTPException(status_code=404, detail="板块数据文件不存在，请先调用 /board/refresh")
@@ -878,6 +995,44 @@ async def refresh_board_mapping():
 _is_refreshing: bool = False
 
 
+@router.get("/dividend/status")
+async def get_dividend_status():
+    """
+    获取股息率数据状态
+
+    返回：
+    - needs_update: 是否需要更新（本月未更新过）
+    - last_updated: 上次更新时间
+    - file_exists: 文件是否存在
+    """
+    from datetime import datetime
+    from src.utils.helpers import DATA_DIR, get_current_date_dir
+
+    # 股息率数据文件路径
+    date_str = get_current_date_dir()  # YYYY-MM格式
+    dividend_file = DATA_DIR / date_str / f"近3年股息率汇总_{date_str}.csv"
+
+    file_exists = dividend_file.exists()
+    last_updated = None
+    needs_update = True
+
+    if file_exists:
+        timestamp = dividend_file.stat().st_mtime
+        last_updated_dt = datetime.fromtimestamp(timestamp)
+        last_updated = last_updated_dt.isoformat()
+
+        # 检查是否是当月
+        now = datetime.now()
+        if last_updated_dt.year == now.year and last_updated_dt.month == now.month:
+            needs_update = False
+
+    return {
+        "needs_update": needs_update,
+        "last_updated": last_updated,
+        "file_exists": file_exists
+    }
+
+
 @router.post("/dividend/refresh", response_model=RefreshResponse)
 async def refresh_dividend_data(request: RefreshRequest):
     """
@@ -889,7 +1044,7 @@ async def refresh_dividend_data(request: RefreshRequest):
     主要用于 n8n 定时任务调用。
 
     请求参数：
-    - min_dividend: 最小分红次数阈值（默认5）
+    - min_dividend: 最小分红次数阈值（默认10）
 
     返回数据：
     - success: 是否成功
@@ -942,6 +1097,7 @@ async def refresh_dividend_data(request: RefreshRequest):
         fetcher = IndexHoldingsFetcher(use_local=False)
         stock_list = fetcher.get_stock_list(
             min_dividend_count=request.min_dividend,
+            min_yield=2.0,  # 粗略股息率筛选阈值
             date_str=date_str
         )
 
