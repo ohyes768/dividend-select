@@ -1650,6 +1650,7 @@ async def generate_one_pager_report():
         top_3y = []
         for rank, (_, row) in enumerate(df_3y_sorted.head(10).iterrows(), 1):
             code = str(row["股票代码"]).zfill(6)
+            sw_info = sw_map.get(code, {})
             m120_info = m120_data.get(code, {})
             ratio = m120_info.get("realtime_deviation")
             # realtime_deviation is already (realtime/m120 - 1) * 100 as percentage
