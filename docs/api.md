@@ -25,11 +25,14 @@
 | 7 | `/pe/update` | POST | 更新 PE/PB 数据 |
 | 8 | `/m120` | GET | 获取 M120 数据 |
 | 9 | `/m120/refresh` | POST | 刷新 M120 数据 |
-| 10 | `/board` | GET | 获取板块信息 |
-| 11 | `/board/refresh` | POST | 刷新板块映射 |
-| 12 | `/realtime-price` | POST | 获取实时价格 |
-| 13 | `/stocks/info` | POST | 批量获取股票信息 |
-| 14 | `/dividend/refresh` | POST | 刷新股息率数据 |
+| 10 | `/m120/status` | GET | 获取 M120 数据状态 |
+| 11 | `/board` | GET | 获取板块信息 |
+| 12 | `/board/refresh` | POST | 刷新板块映射 |
+| 13 | `/realtime-price` | POST | 获取实时价格 |
+| 14 | `/realtime/refresh` | POST | 批量刷新实时价格 |
+| 15 | `/stocks/info` | POST | 批量获取股票信息 |
+| 16 | `/dividend/refresh` | POST | 刷新股息率数据 |
+| 17 | `/dividend/status` | GET | 获取股息率数据状态 |
 
 ---
 
@@ -107,17 +110,18 @@
 ```json
 {
   "total": 36,
+  "last_updated": "2026-05-27T20:00:00",
   "items": [
     {
       "code": "601857",
       "name": "中国石油",
       "exchange": "沪市主板",
       "source_index": "中证红利",
-      "sw_level1": null,
-      "sw_level2": null,
-      "sw_level3": null,
-      "concept_board": null,
-      "industry_board": null,
+      "sw_level1": "石油石化",
+      "sw_level2": "石油开采",
+      "sw_level3": "油田服务",
+      "concept_board": "中字头;央企改革;天然气",
+      "industry_board": "石油石化",
       "avg_price_2025": 10.5,
       "dividend_2025": 0.5,
       "dividend_count_2025": 2,
@@ -146,6 +150,26 @@
   ]
 }
 ```
+
+### 字段说明
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| avg_price_xxxx | float | xxxx年平均股价（元） |
+| dividend_xxxx | float | xxxx年分红金额（元/股） |
+| dividend_count_xxxx | int | xxxx年分红次数 |
+| yield_xxxx | float | xxxx年股息率(%) |
+| avg_price_3y | float | 近3年平均股价 |
+| avg_yield_3y | float | 近3年平均股息率(%) |
+| quarterly | object | 近4个季度股息数据 |
+| quarterly.q1~q4 | object | 季度数据，含 avg_price/dividend/yield_pct |
+| shareholder_count | int | 股东户数 |
+| shareholder_change_pct | float | 股东人数增幅(%) |
+| per_share_holding | float | 人均持股数量 |
+| gross_profit_margin | float | 主营业务利润率(%) |
+| net_profit_margin | float | 净利率(%) |
+| roe | float | 加权净资产收益率(%) |
+| debt_asset_ratio | float | 资产负债率(%) |
 
 ---
 
@@ -229,7 +253,7 @@
     "中证红利质量": 35,
     "红利增长": 20
   },
-  "csv_last_modified": "2026-03-14T10:30:00"
+  "csv_last_modified": "2026-05-27T20:00:00"
 }
 ```
 
@@ -271,7 +295,7 @@
       "circulation_market_cap": 800000.0
     }
   ],
-  "last_updated": "2026-03-13T12:00:00"
+  "last_updated": "2026-05-27T12:00:00"
 }
 ```
 
@@ -336,15 +360,15 @@
       "deviation": 22.38
     }
   ],
-  "last_updated": "2026-03-13T12:00:00"
+  "last_updated": "2026-05-27T12:00:00"
 }
 ```
 
 ### 字段说明
 
 - `m120`: 120日均线值
-- `close`: 最新收盘价
-- `deviation`: 收盘价与M120的偏离度(%)，公式：(close - m120) / m120 * 100
+- `close`: 昨日收盘价
+- `deviation`: 收盘价与M120的偏离度(%)，公式：`(close - m120) / m120 * 100`
 
 ---
 
@@ -373,7 +397,104 @@
 
 ---
 
-## 12. 获取实时价格
+## 10. 获取 M120 数据状态
+
+检查 M120 数据文件状态和文件是否存在。
+
+### 请求
+
+| 属性 | 值 |
+|------|-----|
+| 方法 | GET |
+| 路径 | `/m120/status` |
+
+### 响应
+
+```json
+{
+  "file_exists": true,
+  "last_updated": "2026-05-27T12:00:00",
+  "total_records": 80
+}
+```
+
+---
+
+## 11. 获取板块信息
+
+获取股票的概念板块和行业板块信息。
+
+### 请求
+
+| 属性 | 值 |
+|------|-----|
+| 方法 | GET |
+| 路径 | `/board` |
+
+### 查询参数
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| code | string | 单只股票代码 |
+| codes | string | 多只股票代码（逗号分隔） |
+
+> **注意**: 不传参数时返回空列表，避免返回全市场数据。
+
+### 响应
+
+```json
+{
+  "total": 2,
+  "items": [
+    {
+      "code": "000333",
+      "name": "美的集团",
+      "concept_board": "AH股;HS300_;MSCI中国;人形机器人;价值股;家用电器;智能家居;...",
+      "industry_board": "白色家电"
+    }
+  ],
+  "last_updated": "2026-05-27T12:00:00"
+}
+```
+
+---
+
+## 12. 刷新板块映射
+
+获取所有红利指数持仓股票的概念板块和行业板块信息，并保存到CSV文件。
+
+### 请求
+
+| 属性 | 值 |
+|------|-----|
+| 方法 | POST |
+| 路径 | `/board/refresh` |
+
+### 响应
+
+```json
+{
+  "success": true,
+  "message": "板块映射刷新完成",
+  "stats": {
+    "total_stocks": 150,
+    "success_count": 145,
+    "failed_count": 5,
+    "file_path": "data/2026-05/个股板块映射.csv",
+    "start_time": "2026-05-27T10:00:00",
+    "end_time": "2026-05-27T10:03:30"
+  }
+}
+```
+
+### 注意事项
+
+- 该接口耗时较长（约3-5分钟，取决于股票数量），建议每周或每月更新一次
+- 并发调用时会返回 409 Conflict 错误
+
+---
+
+## 13. 获取实时价格
 
 获取单只股票的实时收盘价和偏离度。
 
@@ -400,13 +521,13 @@
   "code": "601919",
   "close": 15.78,
   "deviation": 6.6,
-  "timestamp": "2026-03-14T10:30:00"
+  "timestamp": "2026-05-27T10:30:00"
 }
 ```
 
 ---
 
-## 13. 批量获取股票信息
+## 14. 批量获取股票信息
 
 批量获取股票的行业/概念信息。
 
@@ -446,81 +567,7 @@
 
 ---
 
-## 10. 获取板块信息
-
-获取股票的概念板块和行业板块信息。
-
-### 请求
-
-| 属性 | 值 |
-|------|-----|
-| 方法 | GET |
-| 路径 | `/board` |
-
-### 查询参数
-
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| code | string | 单只股票代码 |
-| codes | string | 多只股票代码（逗号分隔） |
-
-> **注意**: 不传参数时返回空列表，避免返回全市场数据。
-
-### 响应
-
-```json
-{
-  "total": 2,
-  "items": [
-    {
-      "code": "000333",
-      "name": "美的集团",
-      "concept_board": "AH股;HS300_;MSCI中国;人形机器人;价值股;家用电器;智能家居;...",
-      "industry_board": "白色家电"
-    }
-  ],
-  "last_updated": "2026-03-14T12:00:00"
-}
-```
-
----
-
-## 11. 刷新板块映射
-
-获取所有红利指数持仓股票的概念板块和行业板块信息，并保存到CSV文件。
-
-### 请求
-
-| 属性 | 值 |
-|------|-----|
-| 方法 | POST |
-| 路径 | `/board/refresh` |
-
-### 响应
-
-```json
-{
-  "success": true,
-  "message": "板块映射刷新完成",
-  "stats": {
-    "total_stocks": 150,
-    "success_count": 145,
-    "failed_count": 5,
-    "file_path": "data/2026-03/个股板块映射.csv",
-    "start_time": "2026-03-14T10:00:00",
-    "end_time": "2026-03-14T10:03:30"
-  }
-}
-```
-
-### 注意事项
-
-- 该接口耗时较长（约3-5分钟，取决于股票数量），建议每周或每月更新一次
-- 并发调用时会返回 409 Conflict 错误
-
----
-
-## 14. 刷新股息率数据
+## 15. 刷新股息率数据
 
 获取红利指数持仓、计算股息率并保存。支持增量更新（断点续传）。
 
@@ -555,9 +602,9 @@
     "total_processed": 150,
     "new_or_updated": 20,
     "skipped": 130,
-    "file_path": "data/2026-03/近3年股息率汇总.csv",
-    "start_time": "2026-03-14T10:00:00",
-    "end_time": "2026-03-14T10:02:30"
+    "file_path": "data/2026-05/近3年股息率汇总.csv",
+    "start_time": "2026-05-27T10:00:00",
+    "end_time": "2026-05-27T10:02:30"
   }
 }
 ```
@@ -567,6 +614,63 @@
 - 该接口耗时较长（30秒-5分钟），建议在非高峰期调用
 - 支持增量更新，自动跳过已处理的股票
 - 并发调用时会返回 409 Conflict 错误
+
+---
+
+## 16. 获取股息率数据状态
+
+检查股息率数据文件状态，判断是否需要更新。
+
+### 请求
+
+| 属性 | 值 |
+|------|-----|
+| 方法 | GET |
+| 路径 | `/dividend/status` |
+
+### 响应
+
+```json
+{
+  "needs_update": false,
+  "last_updated": "2026-05-27T20:00:00",
+  "file_exists": true
+}
+```
+
+### 字段说明
+
+- `needs_update`: 是否需要更新（当月已更新过则不需要）
+- `last_updated`: 上次更新时间
+- `file_exists`: 文件是否存在
+
+---
+
+## 17. 批量刷新实时价格
+
+批量刷新所有股息率 >= 4% 股票的实时价格。使用批量接口，一次API调用获取所有股票实时价格。
+
+### 请求
+
+| 属性 | 值 |
+|------|-----|
+| 方法 | POST |
+| 路径 | `/realtime/refresh` |
+
+### 响应
+
+```json
+{
+  "success": true,
+  "message": "实时价格刷新完成，成功更新 80 只股票",
+  "count": 80
+}
+```
+
+### 注意事项
+
+- 该接口使用 comrms 批量接口，一次API调用获取所有股票实时价格
+- 每日调用一次即可更新实时价格数据
 
 ---
 

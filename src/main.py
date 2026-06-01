@@ -19,6 +19,7 @@ from src.services.filter_service import FilterService
 from src.services.m120_service import M120Service
 from src.services.pe_service import PEDataService
 from src.services.sort_service import SortService
+from src.services.shareholder_financial_reader import ShareholderReader, FinancialReader
 from src.utils.config import AppConfig
 from src.utils.logger import setup_logger
 
@@ -51,9 +52,12 @@ async def lifespan(app: FastAPI):
     sort_service = SortService()
     m120_service = M120Service()
     pe_service = PEDataService()
+    shareholder_reader = ShareholderReader()
+    financial_reader = FinancialReader()
 
     # 设置服务到路由
-    set_services(data_reader, filter_service, sort_service, m120_service, pe_service)
+    set_services(data_reader, filter_service, sort_service, m120_service, pe_service,
+                 shareholder_reader, financial_reader)
 
     # 检查数据文件
     if data_reader.check_csv_exists():
@@ -63,11 +67,31 @@ async def lifespan(app: FastAPI):
         logger.warning(f"数据文件不存在: {AppConfig.get_csv_file()}")
 
     # 检查 M120 数据文件
-    if m120_service.check_file_exists():
+    if m120_service.check_m120_file_exists():
         m120_count = len(m120_service.read_m120_data())
         logger.info(f"M120 数据文件加载成功，共 {m120_count} 条记录")
     else:
         logger.info("M120 数据文件不存在，请调用 POST /api/m120/refresh 接口刷新数据")
+
+    # 检查实时价格数据文件
+    if m120_service.check_realtime_price_file_exists():
+        logger.info("实时价格数据文件已存在")
+    else:
+        logger.info("实时价格数据文件不存在，请调用 POST /api/realtime/refresh 接口刷新数据")
+
+    # 检查股东户数数据文件
+    if shareholder_reader.check_exists():
+        sh_count = len(shareholder_reader.read_csv())
+        logger.info(f"股东户数数据文件已存在，共 {sh_count} 条记录")
+    else:
+        logger.info("股东户数数据文件不存在，请运行 shareholder_fetcher.py 获取数据")
+
+    # 检查财务指标数据文件
+    if financial_reader.check_exists():
+        fi_count = len(financial_reader.read_csv())
+        logger.info(f"财务指标数据文件已存在，共 {fi_count} 条记录")
+    else:
+        logger.info("财务指标数据文件不存在，请运行 financial_fetcher.py 获取数据")
 
     yield
 
@@ -93,7 +117,7 @@ app.add_middleware(
 )
 
 # 注册路由（添加 /api 前缀）
-app.include_router(router, prefix='/api')
+app.include_router(router, prefix='/api/dividend')
 
 
 if __name__ == "__main__":

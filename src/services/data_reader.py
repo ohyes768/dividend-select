@@ -35,8 +35,10 @@ class DataReader:
         df = self.read_csv()
         return len(df)
 
-    def get_file_mtime(self) -> float:
-        """获取文件修改时间"""
+    def get_file_mtime(self) -> Optional[float]:
+        """获取文件修改时间，文件不存在返回 None"""
+        if not self.check_csv_exists():
+            return None
         return self.csv_path.stat().st_mtime
 
     def _is_cache_valid(self) -> bool:
@@ -58,10 +60,11 @@ class DataReader:
             force_refresh: 是否强制刷新缓存
 
         Returns:
-            数据 DataFrame
+            数据 DataFrame（文件不存在时返回空 DataFrame）
         """
         if not self.check_csv_exists():
-            raise FileNotFoundError(f"数据文件不存在: {self.csv_path}")
+            logger.warning(f"数据文件不存在: {self.csv_path}，返回空数据")
+            return pd.DataFrame()
 
         # 使用缓存
         if not force_refresh and self._is_cache_valid():
@@ -77,7 +80,7 @@ class DataReader:
             return df
         except Exception as e:
             logger.error(f"读取 CSV 文件失败: {e}")
-            raise
+            return pd.DataFrame()
 
     def get_stock_by_code(self, code: str) -> Optional[pd.Series]:
         """
@@ -90,6 +93,10 @@ class DataReader:
             股票数据 Series，如果不存在返回 None
         """
         df = self.read_csv()
+
+        # 空数据直接返回
+        if df.empty:
+            return None
 
         # 获取第一列（股票代码列）
         code_col = df.columns[0]

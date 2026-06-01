@@ -33,6 +33,13 @@ class Quarter(BaseModel):
 QuarterlyData.model_rebuild()
 
 
+class DividendHistoryItem(BaseModel):
+    """单次分红记录"""
+    ex_date: str = Field(..., description="除权除息日 (YYYY-MM-DD)")
+    ratio: float = Field(..., description="派息比例 (元/股)")
+    fiscal_year: int = Field(..., description="财年")
+
+
 class DividendStock(BaseModel):
     """
     股息率股票数据模型
@@ -78,6 +85,22 @@ class DividendStock(BaseModel):
 
     # 季度数据
     quarterly: Optional[QuarterlyData] = Field(None, description="季度数据")
+
+    # 散户数/股东户数
+    shareholder_count: Optional[int] = Field(None, description="股东户数")
+    shareholder_change_pct: Optional[float] = Field(None, description="股东人数增幅(%)")
+    per_share_holding: Optional[float] = Field(None, description="人均持股数量")
+
+    # 财务指标
+    gross_profit_margin: Optional[float] = Field(None, description="主营业务利润率(%)")
+    net_profit_margin: Optional[float] = Field(None, description="净利率(%)")
+    roe: Optional[float] = Field(None, description="加权净资产收益率(%)")
+    debt_asset_ratio: Optional[float] = Field(None, description="资产负债率(%)")
+    net_profit_ex_non_recurring_yoy: Optional[float] = Field(None, description="扣非净利润同比增速(%)")
+    net_profit_cagr_3y: Optional[float] = Field(None, description="扣非净利润3年复合增长率(%)")
+
+    # 近5年分红详情
+    dividend_history: Optional[list[DividendHistoryItem]] = Field(None, description="近5年分红详情")
 
 
 # ========== 请求模型 ==========
@@ -176,8 +199,11 @@ class M120Stock(BaseModel):
     name: str = Field(..., description="股票名称")
     avg_yield_3y: Optional[float] = Field(None, description="3年平均股息率(%)")
     m120: Optional[float] = Field(None, description="120日均线")
-    close: Optional[float] = Field(None, description="最新收盘价")
-    deviation: Optional[float] = Field(None, description="收盘价与M120的偏离度(%)")
+    close: Optional[float] = Field(None, description="昨日收盘价")
+    deviation: Optional[float] = Field(None, description="昨日收盘价与M120的偏离度(%)")
+    realtime: Optional[float] = Field(None, description="实时价格")
+    realtime_deviation: Optional[float] = Field(None, description="实时价格与M120的偏离度(%)")
+    yield_ttm: Optional[float] = Field(None, description="实时股息率TTM(%)")
 
 
 class M120ListResponse(BaseModel):
@@ -251,6 +277,10 @@ class RefreshStats(BaseModel):
     total_processed: int = Field(..., description="处理总数")
     new_or_updated: int = Field(..., description="新增/更新数")
     skipped: int = Field(..., description="跳过数（已存在）")
+    target_count: int = Field(..., description="目标股票总数")
+    completed_count: int = Field(..., description="成功完成数")
+    failed_count: int = Field(..., description="失败数")
+    failed_codes: list[str] = Field(default_factory=list, description="失败的股票代码列表")
     file_path: str = Field(..., description="文件路径")
     start_time: str = Field(..., description="开始时间 (ISO 8601)")
     end_time: str = Field(..., description="结束时间 (ISO 8601)")
@@ -260,7 +290,14 @@ class RefreshRequest(BaseModel):
     """
     股息率刷新请求模型
     """
-    min_dividend: int = Field(5, description="最小分红次数阈值，默认5", ge=1)
+    min_dividend: int = Field(10, description="最小分红次数阈值，默认10", ge=1)
+
+
+class CodesRequest(BaseModel):
+    """
+    股票代码列表请求模型（用于刷新接口）
+    """
+    codes: list[str] = Field(..., description="股票代码列表", min_length=1)
 
 
 class RefreshResponse(BaseModel):

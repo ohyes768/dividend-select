@@ -84,9 +84,18 @@ class SortService:
         # 获取对应的列名
         col_name = self._get_csv_column_name(sort_by)
 
+        # 检查 DataFrame 是否为空或没有排序列
+        if df.empty:
+            logger.warning("数据为空，无需排序")
+            return df.copy()
+
         if col_name not in df.columns:
             logger.warning(f"排序列不存在: {col_name}，使用默认排序")
             col_name = self.DEFAULT_SORT_FIELD
+
+        if col_name not in df.columns:
+            logger.warning(f"默认排序列也不存在: {col_name}，直接返回原数据")
+            return df.copy()
 
         # 复制数据避免修改原始 DataFrame
         sorted_df = df.copy()

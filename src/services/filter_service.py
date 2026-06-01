@@ -166,3 +166,64 @@ class FilterService:
         logger.debug(f"指数筛选: {index_name}, 结果={len(filtered_df)}条")
 
         return filtered_df
+
+    def filter_by_3y_dividend(
+        self,
+        df: pd.DataFrame,
+        min_avg_yield: float = 3.0
+    ) -> pd.DataFrame:
+        """
+        按3年连续分红筛选
+
+        筛选条件：
+        1. 3年平均股息率 >= min_avg_yield
+        2. 2023、2024、2025年每年都有分红（每股分红 > 0）
+
+        Args:
+            df: 数据 DataFrame
+            min_avg_yield: 最小3年平均股息率（%），默认3%
+
+        Returns:
+            筛选后的 DataFrame
+        """
+        filtered_df = df.copy()
+
+        # 转换股息率列为数值
+        filtered_df["3年平均股息率(%)"] = pd.to_numeric(
+            filtered_df["3年平均股息率(%)"].replace("-", None),
+            errors="coerce"
+        )
+        # 转换各年分红列为数值
+        for year in [2023, 2024, 2025]:
+            col = f"{year}年分红(元/股)"
+            if col in filtered_df.columns:
+                filtered_df[col] = pd.to_numeric(
+                    filtered_df[col].replace("-", None),
+                    errors="coerce"
+                )
+
+        # 筛选条件1: 3年平均股息率 >= min_avg_yield
+        filtered_df = filtered_df[
+            filtered_df["3年平均股息率(%)"].fillna(0) >= min_avg_yield
+        ]
+
+        # 筛选条件2: 2023、2024、2025年每年都有分红
+        conditions = []
+        for year in [2023, 2024, 2025]:
+            col = f"{year}年分红(元/股)"
+            if col in filtered_df.columns:
+                conditions.append(filtered_df[col].fillna(0) > 0)
+            else:
+                conditions.append(pd.Series([False] * len(filtered_df), index=filtered_df.index))
+
+        # 合并条件：三年每年都有分红
+        if len(conditions) == 3:
+            has_all_3y = conditions[0] & conditions[1] & conditions[2]
+            filtered_df = filtered_df[has_all_3y.values]
+
+        logger.debug(
+            f"3年连续分红筛选: 平均股息率>={min_avg_yield}%, "
+            f"2023/2024/2025年每年分红>0, 结果={len(filtered_df)}条"
+        )
+
+        return filtered_df

@@ -6,12 +6,134 @@
 
 | 数据类型 | 数据源 | CSV存储文件 | 主要用途 |
 |---------|--------|-----------|---------|
-| 红利指数持仓 | akshare - 中证指数 | `红利指数持仓汇总.csv` | 获取红利类指数成分股 |
-| 股票分红次数 | akshare - 历史分红 | `股票分红次数汇总.csv` | 筛选历史分红次数多的股票 |
-| 个股板块映射 | efinance | `个股板块映射.csv` | 获取股票概念板块和行业板块 |
-| M120均线数据 | akshare - 历史K线 | `M120数据.csv` | 计算120日均线和偏离度 |
-| PE/PB数据 | akshare - 实时行情 | `PE数据.csv` | 获取估值指标和市值 |
-| 实时股价 | akshare - 分时数据 | 无（实时查询） | 获取最新收盘价 |
+| 历史价格(K线) | **阿里云行情API** `/query/comkm` | - | 计算年均股价、季度股息率 |
+| 实时股价 | **阿里云行情API** `/query/comrms` | `data/M120数据.csv` | 实时价格和偏离度 |
+| 红利指数持仓 | akshare - 中证指数 | `data/YYYY-MM/红利指数持仓汇总.csv` | 获取红利类指数成分股 |
+| 股票分红次数 | akshare - 历史分红 | `data/YYYY-MM/股票分红次数汇总.csv` | 筛选历史分红次数多的股票 |
+| 个股板块映射 | efinance | `data/YYYY-MM/个股板块映射.csv` | 获取股票概念板块和行业板块 |
+| 近3年股息率汇总 | 自定义计算 | `data/YYYY-MM/近3年股息率汇总.csv` | 核心筛选数据 |
+| M120均线数据 | 阿里云API + akshare | `data/M120数据.csv` | 计算120日均线和偏离度 |
+| PE/PB数据 | akshare - 实时行情 | `data/PE数据.csv` | 获取估值指标和市值 |
+
+> **注意**: 所有数据文件按月份存储在 `data/YYYY-MM/` 目录下
+
+---
+
+## 0. 阿里云行情API（核心数据源）
+
+> 项目使用阿里云行情API作为核心数据源，用于获取**历史价格(K线)**和**实时股价**数据。
+
+### 0.1 API配置
+
+**接口地址**: `http://alirmcom2.market.alicloudapi.com`
+
+**认证方式**: APPCODE Header
+
+**API Key** (AppCode): `404de3caed3742ca897e75ddff633066`
+
+### 0.2 历史K线接口 (`/query/comkm`)
+
+**调用位置**: `src/core/calculator.py` - `DividendCalculator._get_price_from_aliyun()`
+
+**调用位置**: `src/services/m120_service.py` - `M120Service._get_m120_from_aliyun()`
+
+**API调用**:
+```
+GET http://alirmcom2.market.alicloudapi.com/query/comkm?period=D&pidx=1&psize=500&symbol=SH600019&withlast=0
+```
+
+**请求头**:
+```
+Authorization: APPCODE 404de3caed3742ca897e75ddff633066
+```
+
+**参数说明**:
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| period | str | 是 | 周期，D=日线 |
+| pidx | int | 是 | 页码，从1开始 |
+| psize | int | 否 | 每页条数，默认500 |
+| symbol | str | 是 | 股票代码，格式: SH600019/SZ000001 |
+| withlast | int | 否 | 是否包含最新K线，0=不包含 |
+
+**返回格式**:
+```json
+{
+  "Code": 0,
+  "Msg": "",
+  "Obj": [
+    {"C": 8.7, "Tick": 1776009600, "D": "2026-04-13 00:00:00", "O": 8.7, "H": 8.76, "L": 8.6, "A": 503607600, "V": 581357},
+    ...
+  ]
+}
+```
+
+**返回字段说明**:
+| 字段 | 说明 |
+|------|------|
+| C | close (收盘价) |
+| O | open (开盘价) |
+| H | high (最高价) |
+| L | low (最低价) |
+| V | volume (成交量) |
+| A | amount (成交额) |
+| D | date (日期) |
+
+**代码转换规则**:
+- 沪市股票 (6/5/9/7/8 开头) → `SH{code}`
+- 深市股票 (0/1/2/3 开头) → `SZ{code}`
+
+### 0.3 批量实时行情接口 (`/query/comrms`)
+
+**调用位置**: `src/services/m120_service.py` - `M120Service._get_realtime_prices_batch()`
+
+**API调用**:
+```
+GET http://alirmcom2.market.alicloudapi.com/query/comrms?c=SH600019,SZ000001&withPic=0
+```
+
+**请求头**:
+```
+Authorization: APPCODE 404de3caed3742ca897e75ddff633066
+```
+
+**参数说明**:
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| c | str | 是 | 股票代码，多个用逗号分隔 |
+| withPic | int | 否 | 是否包含图片，0=不包含 |
+
+**返回格式**:
+```json
+{
+  "Code": 0,
+  "Msg": "",
+  "Obj": [
+    {"C": "601919", "N": "中远海控", "P": 15.78, "YC": 14.80, "M": 1, "FS": "SH601919"},
+    ...
+  ]
+}
+```
+
+**返回字段说明**:
+| 字段 | 说明 |
+|------|------|
+| C | 股票代码 |
+| N | 股票名称 |
+| P | 当前价格(实时) |
+| YC | 昨日收盘价 |
+| M | 市场代码 |
+| FS | 完整代码 |
+
+**批量限制**: 每批最多约10只股票
+
+### 0.4 限流保护机制
+
+项目实现了限流保护机制防止API被封禁：
+
+- **连续失败阈值**: 连续5次获取失败触发限流保护
+- **限流标志**: `_rate_limited` 全局标志，触发后跳过所有API调用
+- **重置机制**: 成功后自动重置连续失败计数
 
 ---
 
@@ -50,7 +172,7 @@ ak.index_stock_cons_weight_csindex(symbol=index_code)
 
 ### 1.2 CSV存储
 
-**文件**: `data/红利指数持仓汇总.csv`
+**文件**: `data/{YYYY-MM}/红利指数持仓汇总.csv`
 
 **字段说明**:
 | 字段 | 类型 | 说明 |
@@ -97,7 +219,7 @@ ak.stock_history_dividend()
 
 ### 2.2 CSV存储
 
-**文件**: `data/股票分红次数汇总.csv`
+**文件**: `data/{YYYY-MM}/股票分红次数汇总.csv`
 
 **字段说明**:
 | 字段 | 类型 | 说明 |
@@ -116,26 +238,9 @@ ak.stock_history_dividend()
 
 **数据源**: efinance
 
-**调用位置**: `src/data/board_fetcher.py` - `BoardMappingFetcher.get_stock_base_info()`
+**调用位置**: `src/data/board_fetcher.py` - `BoardMappingFetcher`
 
-**API调用1 - 获取基本信息（含行业）**:
-```python
-ef.stock.get_base_info([code])
-```
-
-**参数说明**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| code | List[str] | 是 | 股票代码列表 |
-
-**返回字段**:
-| 字段 | 说明 |
-|------|------|
-| 股票代码 | 股票代码 |
-| 股票名称 | 股票名称 |
-| 所属行业 | 所属行业板块 |
-
-**API调用2 - 获取概念板块**:
+**API调用**:
 ```python
 ef.stock.get_belong_board(code)
 ```
@@ -143,7 +248,7 @@ ef.stock.get_belong_board(code)
 **参数说明**:
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| code | str | 是 | 股票代码 |
+| code | str | 是 | 股票代码（6位） |
 
 **返回字段**:
 | 字段 | 说明 |
@@ -154,7 +259,7 @@ ef.stock.get_belong_board(code)
 
 ### 3.2 CSV存储
 
-**文件**: `data/个股板块映射.csv`
+**文件**: `data/{YYYY-MM}/个股板块映射.csv`
 
 **字段说明**:
 | 字段 | 类型 | 说明 |
@@ -166,49 +271,91 @@ ef.stock.get_belong_board(code)
 
 ---
 
-## 4. M120均线数据
+## 4. 近3年股息率汇总数据（核心数据）
 
-### 4.1 数据接口
+### 4.1 计算逻辑
 
-**数据源**: akshare
+**调用位置**: `src/core/calculator.py` - `DividendCalculator`
 
-**调用位置**: `src/services/m120_service.py` - `M120Service.calculate_m120()`
+**计算流程**:
+1. 获取红利指数持仓股票
+2. 获取历史分红数据（akshare）
+3. 获取历史K线数据计算年均股价（akshare）
+4. 计算近3年年度股息率和3年平均股息率
+5. 计算近4个季度股息率
 
-**API调用**:
-```python
-ak.stock_zh_a_hist(symbol=code, period="daily", adjust="qfq")
+**年度股息率计算**:
+```
+年均股息率 = 年分红金额(元/股) / 年平均股价 × 100
 ```
 
-**参数说明**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| symbol | str | 是 | 股票代码，6位数字 |
-| period | str | 否 | 周期，默认 "daily"（日线） |
-| adjust | str | 否 | 复权方式，"qfq"（前复权） |
+**季度股息率计算**:
+```
+季度股息率 = 季度分红金额(元/股) / 季度平均股价 × 100
+```
 
-**返回字段** (原始返回):
-| 字段 | 说明 |
-|------|------|
-| 日期 | 交易日期 |
-| 开盘 | 开盘价 |
-| 收盘 | 收盘价 |
-| 最高 | 最高价 |
-| 最低 | 最低价 |
-| 成交量 | 成交量 |
-| 成交额 | 成交额 |
-| 振幅 | 振幅 |
-| 涨跌幅 | 涨跌幅 |
-| 涨跌额 | 涨跌额 |
-| 换手率 | 换手率 |
+### 4.2 CSV存储
 
-### 4.2 计算逻辑
+**文件**: `data/{YYYY-MM}/近3年股息率汇总.csv`
 
-1. 获取最近120天的收盘价数据
+**核心字段说明**:
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| 股票代码 | str | 6位股票代码 |
+| 股票名称 | str | 股票简称 |
+| 交易所 | str | SH（沪市）/SZ（深市） |
+| 来源指数 | str | 所属的红利指数名称 |
+| 2025年平均价 | float | 2025年平均股价 |
+| 2025年分红(元/股) | float | 2025年分红金额 |
+| 2025年分红次数 | int | 2025年分红次数 |
+| 2025年股息率(%) | float | 2025年股息率 |
+| 2024年平均价 | float | 2024年平均股价 |
+| 2024年分红(元/股) | float | 2024年分红金额 |
+| 2024年分红次数 | int | 2024年分红次数 |
+| 2024年股息率(%) | float | 2024年股息率 |
+| 2023年平均价 | float | 2023年平均股价 |
+| 2023年分红(元/股) | float | 2023年分红金额 |
+| 2023年分红次数 | int | 2023年分红次数 |
+| 2023年股息率(%) | float | 2023年股息率 |
+| 近3年平均股价 | float | 近3年平均股价 |
+| 3年平均股息率(%) | float | 近3年平均股息率 |
+| 2025年最高价 | float | 2025年最高价 |
+| 2025年最低价 | float | 2025年最低价 |
+| 2025年最高涨幅(%) | float | 最高价相对平均股价涨幅 |
+| 2025年最低跌幅(%) | float | 最低价相对平均股价跌幅 |
+
+**季度字段**（动态前4个季度）:
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| YYYYQ1平均价 | float | Q1平均股价 |
+| YYYYQ1分红(元/股) | float | Q1分红金额 |
+| YYYYQ1股息率(%) | float | Q1股息率 |
+| YYYYQ2平均价 | float | Q2平均股价 |
+| ... | ... | ... |
+
+---
+
+## 5. M120均线数据
+
+### 5.1 数据接口
+
+**优先使用**: 阿里云行情API `/query/comkm`
+
+**备用**: akshare `ak.stock_zh_a_hist()`
+
+**调用位置**: `src/services/m120_service.py` - `M120Service`
+
+**获取逻辑**:
+1. 优先使用阿里云API获取最近120条日K线数据
 2. 计算120日均线: `MA120 = 最近120天收盘价平均值`
-3. 获取最新收盘价
-4. 计算偏离度: `偏离度(%) = (最新收盘价 - MA120) / MA120 * 100`
+3. 获取最新收盘价，计算偏离度
 
-### 4.3 CSV存储
+**计算公式**:
+```
+偏离度(%) = (最新收盘价 - M120) / M120 × 100
+```
+
+### 5.2 CSV存储
 
 **文件**: `data/M120数据.csv`
 
@@ -218,13 +365,15 @@ ak.stock_zh_a_hist(symbol=code, period="daily", adjust="qfq")
 | 股票代码 | str | 6位股票代码 |
 | M120 | float | 120日均线值 |
 | 收盘价 | float | 最新收盘价 |
-| 偏离度 | float | 收盘价相对M120的偏离度(%) |
+| 实时价 | float | 实时价格 |
+| 实时偏离度 | float | 实时价格与M120的偏离度(%) |
+| 偏离度 | float | 收盘价与M120的偏离度(%) |
 
 ---
 
-## 5. PE/PB数据
+## 6. PE/PB数据
 
-### 5.1 数据接口
+### 6.1 数据接口
 
 **数据源**: akshare
 
@@ -254,25 +403,25 @@ ak.stock_zh_a_spot_em()
 | 总市值 | 总市值（万元） |
 | 流通市值 | 流通市值（万元） |
 
-### 5.2 CSV存储
+### 6.2 CSV存储
 
 **文件**: `data/PE数据.csv`
 
 **字段说明**:
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| 股票代码 | str | 6位股票代码 |
-| 股票名称 | str | 股票简称 |
-| PE | float | 市盈率 |
-| PB | float | 市净率 |
-| 总市值 | float | 总市值（万元） |
-| 流通市值 | float | 流通市值（万元） |
+| code | str | 6位股票代码 |
+| name | str | 股票简称 |
+| pe | float | 市盈率 |
+| pb | float | 市净率 |
+| market_cap | float | 总市值（万元） |
+| circulation_market_cap | float | 流通市值（万元） |
 
 ---
 
-## 6. 实时股价数据
+## 7. 实时股价数据
 
-### 6.1 数据接口
+### 7.1 数据接口
 
 **数据源**: akshare
 
@@ -296,7 +445,7 @@ ak.stock_intraday_em(symbol=code)
 | 成交量 | 成交量 |
 | 持仓 | 委托数量 |
 
-### 6.2 计算逻辑
+### 7.2 计算逻辑
 
 1. 获取分时数据中的最新成交价
 2. 结合M120数据计算偏离度: `偏离度(%) = (最新成交价 - M120) / M120 * 100`
@@ -309,14 +458,114 @@ ak.stock_intraday_em(symbol=code)
 
 | 路由 | 方法 | 数据源 | CSV读取/写入 |
 |------|------|--------|-------------|
+| `/dividend/status` | GET | 检查CSV文件状态 | 读取 |
+| `/dividend/refresh` | POST | akshare指数+分红数据 | 写入 `data/YYYY-MM/近3年股息率汇总.csv` |
 | `/m120` | GET | 读取 `M120数据.csv` | 读取 |
-| `/m120/refresh` | POST | akshare历史K线 | 写入 `M120数据.csv` |
+| `/m120/refresh` | POST | akshare历史K线 | 写入 `data/M120数据.csv` |
+| `/m120/status` | GET | 检查M120文件状态 | 读取 |
 | `/pe` | GET | 读取 `PE数据.csv` | 读取 |
-| `/pe/update` | POST | akshare实时行情 | 写入 `PE数据.csv` |
+| `/pe/update` | POST | akshare实时行情 | 写入 `data/PE数据.csv` |
 | `/realtime-price` | POST | akshare分时数据 | 无 |
+| `/realtime/refresh` | POST | akshare批量分时数据 | 写入 `M120数据.csv` |
+| `/board` | GET | 读取 `data/个股板块映射.csv` | 读取 |
+| `/board/refresh` | POST | efinance板块接口 | 写入 `data/YYYY-MM/个股板块映射.csv` |
+| `/stocks` | GET | 读取 `近3年股息率汇总.csv` | 读取 |
+| `/stocks/{code}` | GET | 读取 `近3年股息率汇总.csv` | 读取 |
 | `/stocks/info` | POST | 读取 `个股板块映射.csv` | 读取 |
-| `/stocks` | GET | 读取多个CSV | 读取 |
-| `/stocks/{code}` | GET | 读取多个CSV | 读取 |
+
+---
+
+## 8. 股东户数数据
+
+### 8.1 数据接口
+
+**数据源**: akshare
+
+**调用位置**: `src/data/shareholder_fetcher.py` - `ShareholderFetcher`
+
+**API调用**:
+```python
+ak.stock_hold_num_cninfo(date="20250630")
+```
+
+**参数说明**:
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| date | str | 是 | 季度末日期（YYYYMMDD格式），如 "20250630" |
+
+**返回字段** (原始返回):
+| 字段 | 说明 |
+|------|------|
+| 证券代码 | 股票代码 |
+| 证券简称 | 股票名称 |
+| 变动日期 | 报告期 |
+| 本期股东人数 | 最新股东户数 |
+| 上期股东人数 | 上季度股东户数 |
+| 股东人数增幅 | 变化百分比(%) |
+| 本期人均持股数量 | 人均持股数量 |
+
+### 8.2 CSV存储
+
+**文件**: `data/{YYYY-MM}/股东户数汇总.csv`
+
+**字段说明**:
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| 股票代码 | str | 6位股票代码 |
+| 股票名称 | str | 股票简称 |
+| 股东户数 | int | 本期股东人数 |
+| 上期股东户数 | int | 上季度股东人数 |
+| 股东人数增幅 | float | 变化百分比(%) |
+| 人均持股数量 | float | 本期人均持股数量 |
+| 数据日期 | str | 报告期 |
+
+---
+
+## 9. 财务指标数据
+
+### 9.1 数据接口
+
+**数据源**: akshare
+
+**调用位置**: `src/data/financial_fetcher.py` - `FinancialFetcher`
+
+**API调用**:
+```python
+ak.stock_financial_analysis_indicator(symbol="601857", start_year="2023")
+```
+
+**参数说明**:
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| symbol | str | 是 | 股票代码（6位） |
+| start_year | str | 否 | 起始年份，默认 "2022"（需支持3年复合增长率计算） |
+
+**返回字段** (原始返回，86列常用财务指标):
+| 字段 | 说明 |
+|------|------|
+| 日期 | 报告期 |
+| 摊薄每股收益(元) | 每股收益 |
+| 加权每股收益(元) | 加权每股收益 |
+| 净资产收益率(%) | ROE |
+| 加权净资产收益率(%) | 加权ROE |
+| 主营业务利润率(%) | 毛利率 |
+| 资产负债率(%) | 资产负债率 |
+
+### 9.2 CSV存储
+
+**文件**: `data/{YYYY-MM}/财务指标汇总.csv`
+
+**字段说明**:
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| 股票代码 | str | 6位股票代码 |
+| 数据日期 | str | 报告期 |
+| 主营业务利润率 | float | 主营业务利润率(%) |
+| 净利率 | float | 净利率(%) |
+| ROE | float | 加权净资产收益率(%) |
+| 资产负债率 | float | 资产负债率(%) |
+| 扣非净利润同比 | float | 扣非净利润同比增速(%) |
+| 3年复合增长率 | float | 扣非净利润3年复合增长率(%) |
 
 ---
 
@@ -327,6 +576,76 @@ ak.stock_intraday_em(symbol=code)
 | 红利指数持仓 | 每月/季度 | 指数成分股变动较少 |
 | 股票分红次数 | 每半年/年度 | 历史数据变化较慢 |
 | 个股板块映射 | 每季度 | 板块归属变化较慢 |
+| 近3年股息率汇总 | 每月 | 分红数据按年度更新 |
 | M120均线数据 | 每日 | 交易收盘后更新 |
 | PE/PB数据 | 每日 | 交易收盘后更新 |
 | 实时股价 | 实时 | 用户查询时获取 |
+
+---
+
+## 目录结构
+
+```
+data/
+├── YYYY-MM/                      # 按月份存储
+│   ├── 红利指数持仓汇总.csv
+│   ├── 股票分红次数汇总.csv
+│   ├── 个股板块映射.csv
+│   ├── 近3年股息率汇总.csv
+│   ├── 股东户数汇总.csv          # 新增
+│   └── 财务指标汇总.csv          # 新增
+├── M120数据.csv                  # 根目录
+└── PE数据.csv                    # 根目录
+```
+
+---
+
+## 数据接口汇总
+
+### 阿里云行情API（核心）
+
+| 功能 | API路径 | 位置 |
+|------|---------|------|
+| 历史K线 | `/query/comkm` | calculator.py, m120_service.py |
+| 批量实时行情 | `/query/comrms` | m120_service.py |
+
+### akshare API（辅助/备用）
+
+| 功能 | API | 位置 |
+|------|-----|------|
+| 指数持仓 | `ak.index_stock_cons_weight_csindex()` | fetcher.py |
+| 历史分红 | `ak.stock_history_dividend()` | fetcher.py |
+| 历史K线 | `ak.stock_zh_a_hist()` | **仅作备用**，calculator.py |
+| 实时行情 | `ak.stock_zh_a_spot_em()` | fetcher.py, pe_service.py |
+| 盘中实时 | `ak.stock_intraday_em()` | realtime_service.py |
+| 股东户数 | `ak.stock_hold_num_cninfo()` | shareholder_fetcher.py |
+| 财务指标 | `ak.stock_financial_analysis_indicator()` | financial_fetcher.py |
+
+### efinance API
+
+| 功能 | API | 位置 |
+|------|-----|------|
+| 板块归属 | `ef.stock.get_belong_board()` | board_fetcher.py |
+
+---
+
+## 重要说明
+
+### 1. 数据优先级
+
+项目优先使用**阿里云行情API**获取价格数据，因为：
+- 数据质量好（不复权价格）
+- 翻页机制完善
+- 批量接口支持
+
+akshare 仅作为**备用方案**（当阿里云API不可用时）。
+
+### 2. 价格不复权
+
+计算股息率时使用**不复权价格**，因为：
+- 后复权价格会导致历史股价被大幅调整
+- 股息率 = 分红金额 / 股价，使用复权价格会导致股息率被严重低估
+
+### 3. 限流保护
+
+当连续获取失败5次时，会触发限流保护标志，跳过后续API调用以避免被封禁。

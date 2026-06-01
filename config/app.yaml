@@ -4,7 +4,7 @@ app:
   # 服务器配置
   server:
     host: "0.0.0.0"
-    port: 8092
+    port: 8099
 
   # 数据配置
   data:

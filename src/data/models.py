@@ -2,7 +2,9 @@
 数据模型定义
 """
 from dataclasses import dataclass, field
-from typing import Optional
+from datetime import datetime
+from typing import Optional, List
+import json
 
 
 @dataclass
@@ -55,6 +57,14 @@ class BoardInfo:
 
 
 @dataclass
+class DividendDetail:
+    """单次分红详情"""
+    ex_right_date: str    # 除权除息日 YYYY-MM-DD
+    payout_ratio: float   # 派息比例（元/股）
+    fiscal_year: int      # 财年
+
+
+@dataclass
 class StockResult:
     """单只股票的完整结果"""
     # 基本信息
@@ -73,6 +83,9 @@ class StockResult:
 
     # 2025年波动数据
     volatility: Optional[PriceVolatilityData] = None
+
+    # 近5年分红详情（用于TTM计算）
+    dividend_details: List[DividendDetail] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """转换为字典，用于CSV导出"""
@@ -100,18 +113,37 @@ class StockResult:
         result["近3年平均股价"] = round(self.avg_price_3y, 2) if self.avg_price_3y else ""
         result["3年平均股息率(%)"] = round(self.avg_yield_3y, 2) if self.avg_yield_3y else ""
 
-        # 近4季度数据
-        quarters = ["2025Q1", "2025Q2", "2025Q3", "2025Q4"]
-        for q in quarters:
-            if q in self.quarterly_data:
-                qd = self.quarterly_data[q]
-                result[f"{q}平均价"] = round(qd.avg_price, 2)
-                result[f"{q}分红(元/股)"] = round(qd.dividend, 2) if qd.dividend else "-"
-                result[f"{q}股息率(%)"] = round(qd.dividend_yield, 2) if qd.dividend_yield else "-"
+        # 近4季度数据（动态计算前4个已过去季度）
+        now = datetime.now()
+        current_year = now.year
+        current_month = now.month
+        current_quarter = (current_month - 1) // 3 + 1
+
+        # 从上一季度开始往前数4个
+        quarter_list = []
+        q = current_quarter - 1
+        y = current_year
+        if q == 0:
+            q = 4
+            y -= 1
+        for _ in range(4):
+            quarter_list.append((y, q))
+            q -= 1
+            if q == 0:
+                q = 4
+                y -= 1
+
+        for y, q in quarter_list:
+            quarter_label = f"{y}Q{q}"
+            if quarter_label in self.quarterly_data:
+                qd = self.quarterly_data[quarter_label]
+                result[f"{quarter_label}平均价"] = round(qd.avg_price, 2)
+                result[f"{quarter_label}分红(元/股)"] = round(qd.dividend, 2) if qd.dividend else "-"
+                result[f"{quarter_label}股息率(%)"] = round(qd.dividend_yield, 2) if qd.dividend_yield else "-"
             else:
-                result[f"{q}平均价"] = ""
-                result[f"{q}分红(元/股)"] = ""
-                result[f"{q}股息率(%)"] = ""
+                result[f"{quarter_label}平均价"] = ""
+                result[f"{quarter_label}分红(元/股)"] = ""
+                result[f"{quarter_label}股息率(%)"] = ""
 
         # 2025年波动数据
         if self.volatility:
@@ -124,5 +156,19 @@ class StockResult:
             result["2025年最低价"] = ""
             result["2025年最高涨幅(%)"] = ""
             result["2025年最低跌幅(%)"] = ""
+
+        # 近5年分红详情（JSON格式）
+        if self.dividend_details:
+            details_list = [
+                {
+                    "除权除息日": d.ex_right_date,
+                    "派息比例": round(d.payout_ratio, 4),
+                    "财年": d.fiscal_year
+                }
+                for d in self.dividend_details
+            ]
+            result["近5年分红详情"] = json.dumps(details_list, ensure_ascii=False)
+        else:
+            result["近5年分红详情"] = ""
 
         return result

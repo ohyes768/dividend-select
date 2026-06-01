@@ -4,7 +4,7 @@ M120 服务
 """
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -80,7 +80,12 @@ class M120Service:
         """确保数据目录存在"""
         if self.M120_CSV_FILE is None:
             date_str = self.date_str if self.date_str else get_current_date_dir()
-            self.M120_CSV_FILE = DATA_DIR / date_str / "M120均线.csv"
+            # 计算本周日期范围后缀 (周一-周日)
+            today = datetime.now()
+            monday = today - timedelta(days=today.weekday())
+            sunday = monday + timedelta(days=6)
+            week_suffix = f"{monday.strftime('%m-%d')}-{sunday.strftime('%m-%d')}"
+            self.M120_CSV_FILE = DATA_DIR / date_str / f"M120均线_{week_suffix}.csv"
             self.REALTIME_PRICE_CSV_FILE = DATA_DIR / date_str / "实时价格.csv"
         self.M120_CSV_FILE.parent.mkdir(parents=True, exist_ok=True)
 
@@ -362,11 +367,28 @@ class M120Service:
             if i < total:
                 time.sleep(0.5)
 
-        # 保存到 CSV
+        # 保存到 CSV（合并已有数据，不覆盖）
         if results:
-            df = pd.DataFrame(results)
-            df.to_csv(self.M120_CSV_FILE, index=False, encoding="utf-8-sig")
-            logger.info(f"M120 均线已保存到 {self.M120_CSV_FILE}，共 {len(results)} 条")
+            # 读取已有数据
+            existing_data = {}
+            if self.M120_CSV_FILE.exists():
+                try:
+                    existing_df = pd.read_csv(self.M120_CSV_FILE, encoding="utf-8-sig")
+                    for _, row in existing_df.iterrows():
+                        code = str(row["股票代码"]).zfill(6)
+                        existing_data[code] = {"日期": row["日期"], "股票代码": code, "M120": row["M120"]}
+                except Exception:
+                    existing_data = {}
+
+            # 合并：用新数据覆盖已有数据
+            for r in results:
+                code = str(r["股票代码"]).zfill(6)
+                existing_data[code] = r
+
+            # 写回 CSV
+            merged_df = pd.DataFrame(list(existing_data.values()))
+            merged_df.to_csv(self.M120_CSV_FILE, index=False, encoding="utf-8-sig")
+            logger.info(f"M120 均线已保存到 {self.M120_CSV_FILE}，共 {len(merged_df)} 条")
 
         return len(results)
 
