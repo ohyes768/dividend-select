@@ -2097,10 +2097,26 @@ figcaption{font-size:26pt;color:var(--ol);margin-top:8pt;}
 .dots{position:absolute;bottom:110pt;left:50%;transform:translateX(-50%);display:flex;gap:12pt;z-index:10;}
 .dot{width:12pt;height:12pt;border-radius:50%;background:var(--bd);transition:background .3s;}
 .dot.active{background:var(--br);}
-.slide-label{position:absolute;top:20pt;right:20pt;font-size:22pt;color:var(--st);letter-spacing:1pt;z-index:10;}
-.dl-btn{position:absolute;top:20pt;right:160pt;z-index:20;background:rgba(255,255,255,.92);color:var(--br);border:1.5pt solid var(--br);border-radius:6pt;padding:6pt 14pt;font-size:20pt;font-weight:500;cursor:pointer;font-family:var(--serif);letter-spacing:.3pt;}
+.slide-label{position:absolute;top:130pt;right:30pt;font-size:22pt;color:var(--st);letter-spacing:1pt;z-index:10;}
+.dl-btn{position:absolute;top:130pt;right:140pt;z-index:20;background:rgba(255,255,255,.92);color:var(--br);border:1.5pt solid var(--br);border-radius:6pt;padding:6pt 14pt;font-size:20pt;font-weight:500;cursor:pointer;font-family:var(--serif);letter-spacing:.3pt;}
 .dl-btn:hover{background:var(--br);color:#fff;}
 .dl-btn:disabled{opacity:.4;cursor:wait;}
+/* === iPhone 设备边框（电脑端居中，手机端 JS 等比缩放）=== */
+body{background:#1a1a1a;margin:0;padding:0;}
+.device-shell{position:relative;width:1080px;height:1920px;background:#000;border-radius:60px;border:12px solid #1a1a1a;box-shadow:0 30px 80px rgba(0,0,0,.4),inset 0 0 0 2px #333;margin:40px auto;overflow:hidden;transform-origin:center center;}
+/* Dynamic Island */
+.dynamic-island{position:absolute;top:14px;left:50%;transform:translateX(-50%);width:240px;height:80px;background:#000;border-radius:40px;z-index:200;pointer-events:none;}
+/* iOS 状态栏 */
+.status-bar{position:absolute;top:0;left:0;right:0;height:88pt;display:flex;align-items:center;justify-content:space-between;padding:0 80pt 0 100pt;font-size:30pt;font-weight:600;color:#141413;z-index:150;pointer-events:none;letter-spacing:.5pt;box-sizing:border-box;}
+.status-bar .sb-right{display:flex;align-items:center;gap:14pt;}
+.status-bar svg{width:32pt;height:32pt;display:block;}
+/* Home indicator 底部横条 */
+.home-indicator{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:504px;height:12px;background:#000;border-radius:12px;z-index:200;pointer-events:none;}
+/* slide 内容区避开 status bar / home indicator */
+.slide{padding-top:120pt;padding-bottom:40pt;box-sizing:border-box;}
+.footer{bottom:40pt !important;}
+/* iOS 字体回退（iPhone 打开更原生）*/
+:root{--serif:"TsangerJinKai02","PingFang SC","Hiragino Sans GB","Source Han Serif SC","Noto Serif CJK SC",Georgia,serif;}
 """
 
 CAROUSEL_JS = """
@@ -2137,6 +2153,23 @@ window.downloadCurrentSlide=async function(){
   }catch(e){console.error(e);alert('截图失败: '+e.message);}
   finally{btn.disabled=false;btn.textContent=origText;}
 };
+
+function fitDevice(){
+  var vw=window.innerWidth,vh=window.innerHeight;
+  var scale=Math.min(vw/1140,vh/1960);
+  var shell=document.querySelector('.device-shell');
+  if(shell){
+    shell.style.position='fixed';
+    shell.style.top='50%';
+    shell.style.left='50%';
+    shell.style.margin='0';
+    shell.style.transform='translate(-50%,-50%) scale('+scale+')';
+  }
+}
+window.addEventListener('resize',fitDevice);
+window.addEventListener('orientationchange',fitDevice);
+window.addEventListener('load',fitDevice);
+fitDevice();
 """
 
 
@@ -2227,6 +2260,16 @@ def _render_carousel_html(top_curr, top_3y, top_curr_bars, total_stocks, today_s
 <style>{CAROUSEL_CSS}</style>
 </head>
 <body>
+<div class="device-shell">
+  <div class="status-bar">
+    <span>9:41</span>
+    <span class="sb-right">
+      <svg viewBox="0 0 20 12" fill="currentColor"><rect x="0" y="8" width="3" height="4" rx="0.5"/><rect x="5" y="6" width="3" height="6" rx="0.5"/><rect x="10" y="3" width="3" height="9" rx="0.5"/><rect x="15" y="0" width="3" height="12" rx="0.5"/></svg>
+      <svg viewBox="0 0 16 12" fill="currentColor"><path d="M8 11l1.5-1.5a2.12 2.12 0 00-3 0L8 11z"/><path d="M2 6.5l1.5 1.5a4.24 4.24 0 016 0L11 6.5a6.36 6.36 0 00-9 0z" opacity="0.7"/><path d="M0 4.5l1.5 1.5a6.36 6.36 0 019 0L12 4.5a8.49 8.49 0 00-12 0z" opacity="0.4"/></svg>
+      <svg viewBox="0 0 28 14" fill="none"><rect x="0.5" y="0.5" width="24" height="13" rx="3" stroke="currentColor" stroke-width="1" opacity="0.4"/><rect x="2" y="2" width="20" height="10" rx="1.5" fill="currentColor"/><rect x="25" y="5" width="2" height="4" rx="0.5" fill="currentColor" opacity="0.4"/></svg>
+    </span>
+  </div>
+  <div class="dynamic-island"></div>
 <div class="carousel" id="carousel">
 
   <div class="slide active" id="slide1">
@@ -2323,6 +2366,8 @@ def _render_carousel_html(top_curr, top_3y, top_curr_bars, total_stocks, today_s
     <div class="dot" data-index="2"></div>
     <div class="dot" data-index="3"></div>
   </div>
+</div>
+  <div class="home-indicator"></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script>{CAROUSEL_JS}</script>
