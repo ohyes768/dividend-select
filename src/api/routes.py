@@ -1578,6 +1578,18 @@ async def generate_one_pager_report():
         if m120_service is not None:
             m120_data = m120_service.read_m120_with_deviation()
 
+        # === 计算实时股息率（实时价口径，与前端一致）===
+        # 公式：2025年分红(元/股) / 实时价 × 100
+        yield_realtime_map = {}
+        for _, _r in df.iterrows():
+            _code = str(_r["股票代码"]).zfill(6)
+            _div = _r.get("2025年分红(元/股)")
+            _rt = m120_data.get(_code, {}).get("realtime")
+            if pd.notna(_div) and _rt and _rt > 0:
+                yield_realtime_map[_code] = round(float(_div) / float(_rt) * 100, 2)
+        df = df.copy()
+        df["_yield_realtime"] = df["股票代码"].astype(str).str.zfill(6).map(yield_realtime_map)
+
         # 读取财务指标（含扣非同比和3年CAGR）
         financial_map = {}
         if financial_reader is not None and financial_reader.check_exists():
@@ -1599,7 +1611,8 @@ async def generate_one_pager_report():
         today_str = datetime.now().strftime("%Y-%m-%d")
 
         # --- 区块1: 当前股息率TOP10 ---
-        df_curr_sorted = df.sort_values("2025年股息率(%)", ascending=False)
+        # 排序键：实时股息率（实时价口径），无值排到末尾
+        df_curr_sorted = df.sort_values("_yield_realtime", ascending=False, na_position="last")
         # 建立实时排名映射 (code -> rank)
         rank_realtime_map = {}
         for rank, (_, row) in enumerate(df_curr_sorted.iterrows(), 1):
@@ -1619,7 +1632,7 @@ async def generate_one_pager_report():
             top_curr.append({
                 "rank": rank,
                 "name": str(row["股票名称"]),
-                "yield_curr": float(row["2025年股息率(%)"]) if pd.notna(row.get("2025年股息率(%)")) else None,
+                "yield_curr": float(row["_yield_realtime"]) if pd.notna(row.get("_yield_realtime")) else None,
                 "yield_3y_avg": avg_yield_3y_val,
                 "rank_3y": rank_3y,
                 "rank_realtime": rank,
@@ -1641,7 +1654,7 @@ async def generate_one_pager_report():
                 ratio_val = None
             top_curr_bars.append({
                 "name": str(row["股票名称"]),
-                "yield_curr": float(row["2025年股息率(%)"]) if pd.notna(row.get("2025年股息率(%)")) else None,
+                "yield_curr": float(row["_yield_realtime"]) if pd.notna(row.get("_yield_realtime")) else None,
                 "ratio": ratio_val,
             })
 
@@ -1663,7 +1676,7 @@ async def generate_one_pager_report():
                 "rank": rank,
                 "name": str(row["股票名称"]),
                 "yield_3y_avg": float(row["3年平均股息率(%)"]) if pd.notna(row.get("3年平均股息率(%)")) else None,
-                "yield_curr": float(row["2025年股息率(%)"]) if pd.notna(row.get("2025年股息率(%)")) else None,
+                "yield_curr": float(row["_yield_realtime"]) if pd.notna(row.get("_yield_realtime")) else None,
                 "rank_realtime": rank_realtime_map.get(code),
                 "ratio": ratio_val,
                 "m120": m120_info.get("m120"),
@@ -1682,7 +1695,7 @@ async def generate_one_pager_report():
             name = str(name_row.iloc[0]["股票名称"]) if not name_row.empty else code
             sw_info = sw_map.get(code, {})
             yield_curr_row = df_curr_sorted[df_curr_sorted["股票代码"].astype(str).str.zfill(6) == code]
-            yield_curr = float(yield_curr_row.iloc[0]["2025年股息率(%)"]) if not yield_curr_row.empty and pd.notna(yield_curr_row.iloc[0].get("2025年股息率(%)")) else None
+            yield_curr = float(yield_curr_row.iloc[0]["_yield_realtime"]) if not yield_curr_row.empty and pd.notna(yield_curr_row.iloc[0].get("_yield_realtime")) else None
             top_kofei.append({
                 "name": name,
                 "kofei": data["net_profit_ex_non_recurring_yoy"],
@@ -1700,7 +1713,7 @@ async def generate_one_pager_report():
             name = str(name_row.iloc[0]["股票名称"]) if not name_row.empty else code
             sw_info = sw_map.get(code, {})
             yield_curr_row = df_curr_sorted[df_curr_sorted["股票代码"].astype(str).str.zfill(6) == code]
-            yield_curr = float(yield_curr_row.iloc[0]["2025年股息率(%)"]) if not yield_curr_row.empty and pd.notna(yield_curr_row.iloc[0].get("2025年股息率(%)")) else None
+            yield_curr = float(yield_curr_row.iloc[0]["_yield_realtime"]) if not yield_curr_row.empty and pd.notna(yield_curr_row.iloc[0].get("_yield_realtime")) else None
             top_cagr.append({
                 "name": name,
                 "cagr": data["net_profit_cagr_3y"],
