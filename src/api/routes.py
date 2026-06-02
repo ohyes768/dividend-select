@@ -2007,7 +2007,10 @@ def _build_m120_bars_svg(top_3y, svg_width=480, svg_height=200):
     bottom = svg_height - 40
     top = 20
     baseline = bottom  # 基准线（对应 ratio_min）
-    ratio_min = 0.75
+    # ratio_min 动态：基于实际数据自适应（min-0.05 留白，下限 0.65），
+    # 避免 outlier 跌破 X 轴或被 max(5,...) clamp 成 5px 矮柱
+    valid_ratios = [s["ratio"] for s in top_3y if s.get("ratio") is not None]
+    ratio_min = max(0.65, min(valid_ratios) - 0.05) if valid_ratios else 0.75
     ratio_max = 1.30
     y_scale = (bottom - top) / (ratio_max - ratio_min)  # (ratio - ratio_min) → 像素
 
@@ -2083,20 +2086,22 @@ h1{font-family:var(--serif);font-size:58pt;font-weight:500;line-height:1.15;marg
 .meta{font-size:28pt;color:var(--st);text-align:right;line-height:1.4;}
 h2{font-family:var(--serif);font-size:34pt;font-weight:500;margin-bottom:14pt;border-left:5pt solid var(--br);padding-left:14pt;}
 h2 .sub{font-size:26pt;color:var(--st);font-weight:400;margin-left:10pt;}
-table{width:100%;border-collapse:collapse;font-size:28pt;margin:0;break-inside:avoid;}
-table th{text-align:left;font-weight:500;color:var(--dw);padding:6pt 10pt;border-bottom:2pt solid var(--bd);}
-table td{padding:5pt 10pt;border-bottom:1pt solid var(--bds);vertical-align:top;line-height:1.35;}
-table td.num{text-align:right;font-variant-numeric:tabular-nums;}
+table{width:100%;border-collapse:collapse;font-size:22pt;margin:0;break-inside:avoid;}
+table th{text-align:left;font-weight:500;color:var(--dw);padding:4pt 6pt;border-bottom:2pt solid var(--bd);white-space:nowrap;}
+table td{padding:8pt 6pt;border-bottom:1pt solid var(--bds);vertical-align:top;line-height:1.55;}
+table td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
 table th.num{text-align:right;}
-td.name,td.ind{max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* 股票名/行业列：允许换行（4字以上如"建筑装饰"会折成 2 行），line-height 略小于表体 1.55，因为换行后视觉密度需要更小 */
+td.name,td.ind{max-width:200px;word-wrap:break-word;overflow-wrap:anywhere;line-height:1.5;}
 .tag{display:inline-block;background:var(--tb);color:var(--br);font-size:20pt;font-weight:500;padding:1pt 6pt;border-radius:6pt;letter-spacing:.3pt;}
 figure{margin:8pt 0 0;break-inside:avoid;}
 figcaption{font-size:26pt;color:var(--ol);margin-top:8pt;}
 .footer{position:absolute;bottom:0;left:0;right:0;padding:20pt 24pt 24pt;border-top:1pt solid var(--bd);font-size:22pt;color:var(--st);line-height:1.8;letter-spacing:.3pt;background:var(--p);}
 .content{padding:0 20pt;}
-.dots{position:absolute;bottom:110pt;left:50%;transform:translateX(-50%);display:flex;gap:12pt;z-index:10;}
-.dot{width:12pt;height:12pt;border-radius:50%;background:var(--bd);transition:background .3s;}
-.dot.active{background:var(--br);}
+.dots{position:absolute;bottom:180pt;left:50%;transform:translateX(-50%);display:flex;gap:32pt;z-index:10;padding:12pt 28pt;background:rgba(255,255,255,.78);border-radius:32pt;backdrop-filter:blur(6pt);box-shadow:0 4pt 16pt rgba(0,0,0,.08);}
+.dot{width:48pt;height:48pt;border-radius:50%;background:var(--bd);transition:background .2s,transform .2s;cursor:pointer;border:0;}
+.dot:hover{background:#8a99ad;transform:scale(1.1);}
+.dot.active{background:var(--br);transform:scale(1.25);box-shadow:0 0 0 4pt rgba(27,54,93,.28);}
 .slide-label{position:absolute;top:130pt;right:30pt;font-size:22pt;color:var(--st);letter-spacing:1pt;z-index:10;}
 .dl-btn{position:absolute;top:130pt;right:140pt;z-index:20;background:rgba(255,255,255,.92);color:var(--br);border:1.5pt solid var(--br);border-radius:6pt;padding:6pt 14pt;font-size:20pt;font-weight:500;cursor:pointer;font-family:var(--serif);letter-spacing:.3pt;}
 .dl-btn:hover{background:var(--br);color:#fff;}
@@ -2124,7 +2129,7 @@ CAROUSEL_JS = """
   var slides=document.querySelectorAll('.slide'),dots=document.querySelectorAll('.dot'),cur=0,tid;
   function show(i){slides.forEach(function(s,j){s.classList.toggle('active',j===i)});dots.forEach(function(d,j){d.classList.toggle('active',j===i)});cur=i;}
   function next(){show((cur+1)%4);}
-  function start(){tid=setInterval(next,4000);}
+  function start(){tid=setInterval(next,10000);}
   function stop(){clearInterval(tid);}
   dots.forEach(function(d){d.addEventListener('click',function(){stop();show(+d.dataset.index);start();});});
   var c=document.getElementById('carousel'),tx=0;
@@ -2135,23 +2140,61 @@ CAROUSEL_JS = """
 })();
 
 window.downloadCurrentSlide=async function(){
+  // iPhone 12/13/14 标准渲染尺寸（与 CSS device-shell 一致）
+  var IPHONE_W=1080,IPHONE_H=1920;
+
   var btn=document.querySelector('.slide.active .dl-btn');
   var slide=document.querySelector('.slide.active');
-  if(!slide){alert('找不到当前 slide');return;}
+  var shell=document.querySelector('.device-shell');
+  if(!slide||!shell){alert('找不到当前 slide');return;}
   if(typeof html2canvas==='undefined'){alert('截图库未加载，请检查网络后重试');return;}
-  var origText=btn.textContent;btn.disabled=true;btn.textContent='渲染中...';
+  var origText=btn.textContent;
+  // 提前记录所有元素的原 display 状态——finally 兜底恢复（避免异常时 UI 残留 hidden）
+  var origCss=shell.style.cssText;
+  var dotsEl=document.querySelector('.dots');
+  var origDotsDisplay=dotsEl?dotsEl.style.display:'';
+  var labelEl=document.querySelector('.slide.active .slide-label');
+  var origLabelDisplay=labelEl?labelEl.style.display:'';
+  var origBtnDisplay=btn.style.display;
+  btn.disabled=true;btn.textContent='渲染中...';
   try{
+    // 1) 临时清除 device-shell 的 transform（避免 html2canvas 处理嵌套 transform 错位）
+    //    注意：origCss 只含 inline 样式（fitDevice 写入的 position/transform），
+    //    不含外部 .device-shell CSS 规则——但恢复后 fitDevice 会重新设置，OK
+    shell.style.cssText='position:absolute;top:0;left:0;margin:0;transform:none;width:'+IPHONE_W+'px;height:'+IPHONE_H+'px;';
+    // 2) 隐藏截图不需要的 UI：轮播 dots / 当前 slide 标签 / 下载按钮
+    if(dotsEl) dotsEl.style.display='none';
+    if(labelEl) labelEl.style.display='none';
+    btn.style.display='none';
+    // 3) 字体兜底：document.fonts.ready 解决正常情况；font.check 单独探测关键 web font
+    //    （如果 CDN 慢或断网，check 会 false 触发额外 sleep 给 web font 加载时间）
     var sleep=function(ms){return new Promise(function(r){setTimeout(r,ms);});};
     await Promise.race([document.fonts.ready, sleep(5000)]);
-    var canvas=await html2canvas(slide,{scale:1,useCORS:true,backgroundColor:'#f5f4ed',logging:false});
+    if(!document.fonts.check('1em TsangerJinKai02')){await sleep(800);}
+    // 4) 等待浏览器完成 reflow（双 RAF 比固定 sleep 更精确，不依赖经验值）
+    await new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r);});});
+    // 5) html2canvas 截 device-shell 整块（含 iPhone 边框 + 状态栏 + Dynamic Island + home indicator）
+    var canvas=await html2canvas(shell,{
+      scale:1,useCORS:true,backgroundColor:'#1a1a1a',logging:false,
+      width:IPHONE_W,height:IPHONE_H,windowWidth:IPHONE_W,windowHeight:IPHONE_H
+    });
+    // 6) 恢复 shell（必须在 html2canvas 后立即恢复，否则 fitDevice 监听 resize 时看不到正确状态）
+    shell.style.cssText=origCss;
+    if(labelEl) labelEl.style.display=origLabelDisplay;
+    btn.style.display=origBtnDisplay;
+    // 7) 触发下载（文件名加 _iphone 后缀，区分是否含设备边框）
     var idx=Array.prototype.indexOf.call(slide.parentNode.querySelectorAll('.slide'),slide)+1;
     var dateStr=document.querySelector('.slide.active .meta').textContent.trim();
     var a=document.createElement('a');
-    a.download='dividend_slide'+idx+'_'+dateStr+'.png';
+    a.download='dividend_slide'+idx+'_'+dateStr+'_iphone.png';
     a.href=canvas.toDataURL('image/png');
     document.body.appendChild(a);a.click();document.body.removeChild(a);
   }catch(e){console.error(e);alert('截图失败: '+e.message);}
-  finally{btn.disabled=false;btn.textContent=origText;}
+  finally{
+    // 兜底恢复 dots/btn 状态（异常时也保证 UI 不残留 hidden；label/shell 在 try 块尾部已恢复）
+    btn.disabled=false;btn.textContent=origText;btn.style.display=origBtnDisplay;
+    if(dotsEl) dotsEl.style.display=origDotsDisplay;
+  }
 };
 
 function fitDevice(){
@@ -2202,9 +2245,14 @@ def _build_carousel_row_ay(r):
 
 
 def _build_vert_svg(stocks, yield_attr="yield_curr", fallback_yield_attr="yield_3y_avg"):
-    """生成 1080×1920 竖版 SVG 柱状图（viewBox 1040×720，BAR_W=52, STEP=86, BASE_X=88）"""
+    """生成 1080×1920 竖版 SVG 柱状图（viewBox 1040×720，BAR_W=52, STEP=86, BASE_X=88）
+    MN 动态：基于 stocks 实际 ratio 范围自适应（下限 0.65，最小 ratio - 0.05 留白），
+    避免 outlier（如 0.715）跌破 X 轴导致柱子反向绘制
+    """
     BAR_W, STEP, BASE_X = 52, 86, 88
-    MN, MX = 0.78, 1.25
+    MX = 1.25
+    valid_ratios = [s["ratio"] for s in stocks if s.get("ratio") is not None]
+    MN = max(0.65, min(valid_ratios) - 0.05) if valid_ratios else 0.78
     YBASE, YSCALE = 540.0, 400.0/(MX-MN)
     def yp(r): return YBASE - (r-MN)*YSCALE
 
@@ -2245,7 +2293,9 @@ def _render_carousel_html(top_curr, top_3y, top_curr_bars, total_stocks, today_s
     bars_map = {b["name"]: b for b in top_curr_bars}
     rows1 = "".join(_build_carousel_row_curr(r, bars_map) for r in top_curr)
     rows3 = "".join(_build_carousel_row_ay(r) for r in top_3y)
-    svg1 = _build_vert_svg(top_curr, yield_attr="yield_curr", fallback_yield_attr="yield_3y_avg")
+    # slide 2 柱状图用 top_curr_bars（含 ratio + yield_curr），不用 top_curr（缺 ratio）
+    svg1 = _build_vert_svg(top_curr_bars, yield_attr="yield_curr")
+    # slide 4 柱状图用 top_3y（含 ratio + yield_3y_avg）
     svg2 = _build_vert_svg(top_3y, yield_attr="yield_3y_avg", fallback_yield_attr="yield_curr")
 
     footer_left = f"数据来源：dividend-select · {total_stocks}只高股息A股样本"
