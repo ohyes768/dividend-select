@@ -1551,10 +1551,182 @@ async def refresh_dividend_data(request: RefreshRequest):
             status_code=500,
             detail=f"刷新失败: {str(e)}"
         )
+async def _load_report_context() -> dict:
+    """
+    加载生成报告所需的全部数据（one-pager / carousel 路由共用）。
+
+    返回:
+        dict 含 top_curr / top_3y / top_kofei / top_cagr / top_curr_bars /
+             total_stocks / today_str 七个键，可直接 **ctx 传给渲染函数。
+    """
+    if data_reader is None or sort_service is None or filter_service is None:
+        raise HTTPException(status_code=500, detail="服务未初始化")
+
+    from datetime import datetime
+
+    # === 读取数据 ===
+    df = data_reader.read_csv()
+    if df.empty:
+        raise HTTPException(status_code=404, detail="数据文件为空")
+
+    # 读取实时价格和M120
+    m120_data = {}
+    if m120_service is not None:
+        m120_data = m120_service.read_m120_with_deviation()
+
+    # === 计算实时股息率（实时价口径，与前端一致）===
+    # 公式：2025年分红(元/股) / 实时价 × 100
+    yield_realtime_map = {}
+    for _, _r in df.iterrows():
+        _code = str(_r["股票代码"]).zfill(6)
+        _div = _r.get("2025年分红(元/股)")
+        _rt = m120_data.get(_code, {}).get("realtime")
+        if pd.notna(_div) and _rt and _rt > 0:
+            yield_realtime_map[_code] = round(float(_div) / float(_rt) * 100, 2)
+    df = df.copy()
+    df["_yield_realtime"] = df["股票代码"].astype(str).str.zfill(6).map(yield_realtime_map)
+
+    # 读取财务指标（含扣非同比和3年CAGR）
+    financial_map = {}
+    if financial_reader is not None and financial_reader.check_exists():
+        fi_df = financial_reader.read_csv()
+        for _, fi_row in fi_df.iterrows():
+            code = str(fi_row["股票代码"]).zfill(6)
+            financial_map[code] = {
+                "net_profit_ex_non_recurring_yoy": float(fi_row["扣非净利润同比"]) if pd.notna(fi_row.get("扣非净利润同比")) else None,
+                "net_profit_cagr_3y": float(fi_row["3年复合增长率"]) if pd.notna(fi_row.get("3年复合增长率")) else None,
+            }
+
+    # 读取申万行业
+    sw_map = {}
+    if stock_info_service is not None:
+        codes = df["股票代码"].astype(str).str.zfill(6).tolist()
+        sw_map = stock_info_service.get_stocks_info(codes)
+
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    # --- 区块1: 当前股息率TOP10（按实时股息率排序）---
+    df_curr_sorted = df.sort_values("_yield_realtime", ascending=False, na_position="last")
+    rank_realtime_map = {}
+    for rank, (_, row) in enumerate(df_curr_sorted.iterrows(), 1):
+        code = str(row["股票代码"]).zfill(6)
+        rank_realtime_map[code] = rank
+    top_curr = []
+    for rank, (_, row) in enumerate(df_curr_sorted.head(10).iterrows(), 1):
+        code = str(row["股票代码"]).zfill(6)
+        sw_info = sw_map.get(code, {})
+        avg_yield_3y = row.get("3年平均股息率(%)")
+        avg_yield_3y_val = float(avg_yield_3y) if pd.notna(avg_yield_3y) else None
+        if avg_yield_3y_val is not None:
+            rank_3y = df[df["3年平均股息率(%)"] >= avg_yield_3y_val].shape[0]
+        else:
+            rank_3y = None
+        top_curr.append({
+            "rank": rank,
+            "name": str(row["股票名称"]),
+            "yield_curr": float(row["_yield_realtime"]) if pd.notna(row.get("_yield_realtime")) else None,
+            "yield_3y_avg": avg_yield_3y_val,
+            "rank_3y": rank_3y,
+            "rank_realtime": rank,
+            "industry": sw_info.get("sw_level1") or row.get("来源指数") or "",
+            "kofei": financial_map.get(code, {}).get("net_profit_ex_non_recurring_yoy"),
+            "cagr": financial_map.get(code, {}).get("net_profit_cagr_3y"),
+        })
+
+    # --- 区块1扩展: 实时TOP10的昨收/M120比值（用于柱状图） ---
+    top_curr_bars = []
+    for _, row in df_curr_sorted.head(10).iterrows():
+        code = str(row["股票代码"]).zfill(6)
+        m120_info = m120_data.get(code, {})
+        ratio = m120_info.get("realtime_deviation")
+        if ratio is not None:
+            ratio_val = ratio / 100 + 1
+        else:
+            ratio_val = None
+        top_curr_bars.append({
+            "name": str(row["股票名称"]),
+            "yield_curr": float(row["_yield_realtime"]) if pd.notna(row.get("_yield_realtime")) else None,
+            "ratio": ratio_val,
+        })
+
+    # --- 区块2: 近3年平均股息率TOP10（含ratio） ---
+    df_3y_sorted = df.sort_values("3年平均股息率(%)", ascending=False)
+    top_3y = []
+    for rank, (_, row) in enumerate(df_3y_sorted.head(10).iterrows(), 1):
+        code = str(row["股票代码"]).zfill(6)
+        sw_info = sw_map.get(code, {})
+        m120_info = m120_data.get(code, {})
+        ratio = m120_info.get("realtime_deviation")
+        if ratio is not None:
+            ratio_val = ratio / 100 + 1
+        else:
+            ratio_val = None
+        top_3y.append({
+            "rank": rank,
+            "name": str(row["股票名称"]),
+            "yield_3y_avg": float(row["3年平均股息率(%)"]) if pd.notna(row.get("3年平均股息率(%)")) else None,
+            "yield_curr": float(row["_yield_realtime"]) if pd.notna(row.get("_yield_realtime")) else None,
+            "rank_realtime": rank_realtime_map.get(code),
+            "ratio": ratio_val,
+            "m120": m120_info.get("m120"),
+            "industry": sw_info.get("sw_level1") or row.get("来源指数") or "",
+            "kofei": financial_map.get(code, {}).get("net_profit_ex_non_recurring_yoy"),
+            "cagr": financial_map.get(code, {}).get("net_profit_cagr_3y"),
+        })
+
+    # --- 区块3: 扣非同比TOP10 ---
+    fin_rows = [(code, data) for code, data in financial_map.items() if data.get("net_profit_ex_non_recurring_yoy") is not None]
+    fin_rows.sort(key=lambda x: x[1]["net_profit_ex_non_recurring_yoy"], reverse=True)
+    top_kofei = []
+    for code, data in fin_rows[:10]:
+        name_row = df[df["股票代码"].astype(str).str.zfill(6) == code]
+        name = str(name_row.iloc[0]["股票名称"]) if not name_row.empty else code
+        sw_info = sw_map.get(code, {})
+        yield_curr_row = df_curr_sorted[df_curr_sorted["股票代码"].astype(str).str.zfill(6) == code]
+        yield_curr = float(yield_curr_row.iloc[0]["_yield_realtime"]) if not yield_curr_row.empty and pd.notna(yield_curr_row.iloc[0].get("_yield_realtime")) else None
+        top_kofei.append({
+            "name": name,
+            "kofei": data["net_profit_ex_non_recurring_yoy"],
+            "cagr": data["net_profit_cagr_3y"],
+            "yield_curr": yield_curr,
+            "industry": sw_info.get("sw_level1") or "",
+        })
+
+    # --- 区块4: 3年CAGR TOP10 ---
+    cagr_rows = [(code, data) for code, data in financial_map.items() if data.get("net_profit_cagr_3y") is not None]
+    cagr_rows.sort(key=lambda x: x[1]["net_profit_cagr_3y"], reverse=True)
+    top_cagr = []
+    for code, data in cagr_rows[:10]:
+        name_row = df[df["股票代码"].astype(str).str.zfill(6) == code]
+        name = str(name_row.iloc[0]["股票名称"]) if not name_row.empty else code
+        sw_info = sw_map.get(code, {})
+        yield_curr_row = df_curr_sorted[df_curr_sorted["股票代码"].astype(str).str.zfill(6) == code]
+        yield_curr = float(yield_curr_row.iloc[0]["_yield_realtime"]) if not yield_curr_row.empty and pd.notna(yield_curr_row.iloc[0].get("_yield_realtime")) else None
+        top_cagr.append({
+            "name": name,
+            "cagr": data["net_profit_cagr_3y"],
+            "kofei": data["net_profit_ex_non_recurring_yoy"],
+            "yield_curr": yield_curr,
+            "industry": sw_info.get("sw_level1") or "",
+        })
+
+    total_stocks = len(df)
+
+    return {
+        "top_curr": top_curr,
+        "top_3y": top_3y,
+        "top_kofei": top_kofei,
+        "top_cagr": top_cagr,
+        "top_curr_bars": top_curr_bars,
+        "total_stocks": total_stocks,
+        "today_str": today_str,
+    }
+
+
 @router.get("/report/one-pager")
 async def generate_one_pager_report():
     """
-    生成高股息率TOP10全景报告 HTML 并直接下载
+    生成高股息率TOP10全景报告 HTML 并直接下载（A4 一图版，左右布局）
 
     报告包含 4 个区块：
     1. 当前股息率TOP10（含近3年均值、排名、行业）
@@ -1562,190 +1734,55 @@ async def generate_one_pager_report():
     3. 扣非净利润同比TOP10（含3年CAGR、当前股息率）
     4. 3年复合增长率TOP10（含扣非同比、当前股息率）
     """
-    if data_reader is None or sort_service is None or filter_service is None:
-        raise HTTPException(status_code=500, detail="服务未初始化")
-
     try:
-        from datetime import datetime
+        ctx = await _load_report_context()
+        html_content = _render_one_pager_html(**ctx)
 
-        # === 读取数据 ===
-        df = data_reader.read_csv()
-        if df.empty:
-            raise HTTPException(status_code=404, detail="数据文件为空")
-
-        # 读取实时价格和M120
-        m120_data = {}
-        if m120_service is not None:
-            m120_data = m120_service.read_m120_with_deviation()
-
-        # === 计算实时股息率（实时价口径，与前端一致）===
-        # 公式：2025年分红(元/股) / 实时价 × 100
-        yield_realtime_map = {}
-        for _, _r in df.iterrows():
-            _code = str(_r["股票代码"]).zfill(6)
-            _div = _r.get("2025年分红(元/股)")
-            _rt = m120_data.get(_code, {}).get("realtime")
-            if pd.notna(_div) and _rt and _rt > 0:
-                yield_realtime_map[_code] = round(float(_div) / float(_rt) * 100, 2)
-        df = df.copy()
-        df["_yield_realtime"] = df["股票代码"].astype(str).str.zfill(6).map(yield_realtime_map)
-
-        # 读取财务指标（含扣非同比和3年CAGR）
-        financial_map = {}
-        if financial_reader is not None and financial_reader.check_exists():
-            fi_df = financial_reader.read_csv()
-            for _, fi_row in fi_df.iterrows():
-                code = str(fi_row["股票代码"]).zfill(6)
-                financial_map[code] = {
-                    "net_profit_ex_non_recurring_yoy": float(fi_row["扣非净利润同比"]) if pd.notna(fi_row.get("扣非净利润同比")) else None,
-                    "net_profit_cagr_3y": float(fi_row["3年复合增长率"]) if pd.notna(fi_row.get("3年复合增长率")) else None,
-                }
-
-        # 读取申万行业
-        sw_map = {}
-        if stock_info_service is not None:
-            codes = df["股票代码"].astype(str).str.zfill(6).tolist()
-            sw_map = stock_info_service.get_stocks_info(codes)
-
-        # === 计算4个TOP10 ===
-        today_str = datetime.now().strftime("%Y-%m-%d")
-
-        # --- 区块1: 当前股息率TOP10 ---
-        # 排序键：实时股息率（实时价口径），无值排到末尾
-        df_curr_sorted = df.sort_values("_yield_realtime", ascending=False, na_position="last")
-        # 建立实时排名映射 (code -> rank)
-        rank_realtime_map = {}
-        for rank, (_, row) in enumerate(df_curr_sorted.iterrows(), 1):
-            code = str(row["股票代码"]).zfill(6)
-            rank_realtime_map[code] = rank
-        top_curr = []
-        for rank, (_, row) in enumerate(df_curr_sorted.head(10).iterrows(), 1):
-            code = str(row["股票代码"]).zfill(6)
-            sw_info = sw_map.get(code, {})
-            avg_yield_3y = row.get("3年平均股息率(%)")
-            avg_yield_3y_val = float(avg_yield_3y) if pd.notna(avg_yield_3y) else None
-            # 近3年排名
-            if avg_yield_3y_val is not None:
-                rank_3y = df[df["3年平均股息率(%)"] >= avg_yield_3y_val].shape[0]
-            else:
-                rank_3y = None
-            top_curr.append({
-                "rank": rank,
-                "name": str(row["股票名称"]),
-                "yield_curr": float(row["_yield_realtime"]) if pd.notna(row.get("_yield_realtime")) else None,
-                "yield_3y_avg": avg_yield_3y_val,
-                "rank_3y": rank_3y,
-                "rank_realtime": rank,
-                "industry": sw_info.get("sw_level1") or row.get("来源指数") or "",
-                "kofei": financial_map.get(code, {}).get("net_profit_ex_non_recurring_yoy"),
-                "cagr": financial_map.get(code, {}).get("net_profit_cagr_3y"),
-            })
-
-        # --- 区块1扩展: 实时TOP10的昨收/M120比值（用于柱状图） ---
-        # 复用 m120_data 和 df_curr_sorted 构建 top_curr_bars
-        top_curr_bars = []
-        for _, row in df_curr_sorted.head(10).iterrows():
-            code = str(row["股票代码"]).zfill(6)
-            m120_info = m120_data.get(code, {})
-            ratio = m120_info.get("realtime_deviation")
-            if ratio is not None:
-                ratio_val = ratio / 100 + 1
-            else:
-                ratio_val = None
-            top_curr_bars.append({
-                "name": str(row["股票名称"]),
-                "yield_curr": float(row["_yield_realtime"]) if pd.notna(row.get("_yield_realtime")) else None,
-                "ratio": ratio_val,
-            })
-
-        # --- 区块2: 近3年平均股息率TOP10（含ratio） ---
-        df_3y_sorted = df.sort_values("3年平均股息率(%)", ascending=False)
-        top_3y = []
-        for rank, (_, row) in enumerate(df_3y_sorted.head(10).iterrows(), 1):
-            code = str(row["股票代码"]).zfill(6)
-            sw_info = sw_map.get(code, {})
-            m120_info = m120_data.get(code, {})
-            ratio = m120_info.get("realtime_deviation")
-            # realtime_deviation is already (realtime/m120 - 1) * 100 as percentage
-            # convert to ratio: ratio = deviation/100 + 1
-            if ratio is not None:
-                ratio_val = ratio / 100 + 1
-            else:
-                ratio_val = None
-            top_3y.append({
-                "rank": rank,
-                "name": str(row["股票名称"]),
-                "yield_3y_avg": float(row["3年平均股息率(%)"]) if pd.notna(row.get("3年平均股息率(%)")) else None,
-                "yield_curr": float(row["_yield_realtime"]) if pd.notna(row.get("_yield_realtime")) else None,
-                "rank_realtime": rank_realtime_map.get(code),
-                "ratio": ratio_val,
-                "m120": m120_info.get("m120"),
-                "industry": sw_info.get("sw_level1") or row.get("来源指数") or "",
-                "kofei": financial_map.get(code, {}).get("net_profit_ex_non_recurring_yoy"),
-                "cagr": financial_map.get(code, {}).get("net_profit_cagr_3y"),
-            })
-
-        # --- 区块3: 扣非同比TOP10 ---
-        fin_rows = [(code, data) for code, data in financial_map.items() if data.get("net_profit_ex_non_recurring_yoy") is not None]
-        fin_rows.sort(key=lambda x: x[1]["net_profit_ex_non_recurring_yoy"], reverse=True)
-        top_kofei = []
-        for code, data in fin_rows[:10]:
-            # 找股票名称
-            name_row = df[df["股票代码"].astype(str).str.zfill(6) == code]
-            name = str(name_row.iloc[0]["股票名称"]) if not name_row.empty else code
-            sw_info = sw_map.get(code, {})
-            yield_curr_row = df_curr_sorted[df_curr_sorted["股票代码"].astype(str).str.zfill(6) == code]
-            yield_curr = float(yield_curr_row.iloc[0]["_yield_realtime"]) if not yield_curr_row.empty and pd.notna(yield_curr_row.iloc[0].get("_yield_realtime")) else None
-            top_kofei.append({
-                "name": name,
-                "kofei": data["net_profit_ex_non_recurring_yoy"],
-                "cagr": data["net_profit_cagr_3y"],
-                "yield_curr": yield_curr,
-                "industry": sw_info.get("sw_level1") or "",
-            })
-
-        # --- 区块4: 3年CAGR TOP10 ---
-        cagr_rows = [(code, data) for code, data in financial_map.items() if data.get("net_profit_cagr_3y") is not None]
-        cagr_rows.sort(key=lambda x: x[1]["net_profit_cagr_3y"], reverse=True)
-        top_cagr = []
-        for code, data in cagr_rows[:10]:
-            name_row = df[df["股票代码"].astype(str).str.zfill(6) == code]
-            name = str(name_row.iloc[0]["股票名称"]) if not name_row.empty else code
-            sw_info = sw_map.get(code, {})
-            yield_curr_row = df_curr_sorted[df_curr_sorted["股票代码"].astype(str).str.zfill(6) == code]
-            yield_curr = float(yield_curr_row.iloc[0]["_yield_realtime"]) if not yield_curr_row.empty and pd.notna(yield_curr_row.iloc[0].get("_yield_realtime")) else None
-            top_cagr.append({
-                "name": name,
-                "cagr": data["net_profit_cagr_3y"],
-                "kofei": data["net_profit_ex_non_recurring_yoy"],
-                "yield_curr": yield_curr,
-                "industry": sw_info.get("sw_level1") or "",
-            })
-
-        total_stocks = len(df)
-
-        # === 渲染 HTML ===
-        html_content = _render_one_pager_html(
-            top_curr, top_3y, top_kofei, top_cagr, top_curr_bars, total_stocks, today_str
-        )
-
-        # === 返回下载响应 ===
         from fastapi.responses import StreamingResponse
         import io
 
-        filename = f"dividend_report_{today_str}.html"
-        response = StreamingResponse(
+        filename = f"dividend_report_{ctx['today_str']}.html"
+        return StreamingResponse(
             io.BytesIO(html_content.encode("utf-8")),
             media_type="text/html;charset=utf-8",
             headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"}
         )
-        return response
-
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"生成报告失败: {e}")
         raise HTTPException(status_code=500, detail=f"生成报告失败: {str(e)}")
+
+
+@router.get("/report/carousel")
+async def generate_carousel_report():
+    """
+    生成高股息率TOP10移动端竖版轮播报告 HTML 并直接下载
+
+    4 个 slide（1080×1920），4 秒自动轮播，支持触摸/键盘/点击 dots 切换。
+    每个 slide 右上角带"⬇ 下载当前图"按钮，点击后用 html2canvas 截图为 PNG。
+    """
+    try:
+        ctx = await _load_report_context()
+        html_content = _render_carousel_html(
+            ctx["top_curr"], ctx["top_3y"], ctx["top_curr_bars"],
+            ctx["total_stocks"], ctx["today_str"]
+        )
+
+        from fastapi.responses import StreamingResponse
+        import io
+
+        filename = f"dividend_carousel_{ctx['today_str']}.html"
+        return StreamingResponse(
+            io.BytesIO(html_content.encode("utf-8")),
+            media_type="text/html;charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"生成轮播报告失败: {e}")
+        raise HTTPException(status_code=500, detail=f"生成轮播报告失败: {str(e)}")
 
 
 def _render_one_pager_html(top_curr, top_3y, top_kofei, top_cagr, top_curr_bars, total_stocks, today_str):
@@ -2019,3 +2056,275 @@ def _build_m120_bars_svg(top_3y, svg_width=480, svg_height=200):
     bars_svg = "\n        ".join(bars)
     labels_svg = "\n        ".join(labels)
     return bars_svg, labels_svg
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Carousel 模板（1080×1920 移动端竖版轮播，含⬇下载原图按钮）
+# ─────────────────────────────────────────────────────────────────────────────
+CAROUSEL_CSS = """
+@font-face{font-family:"TsangerJinKai02";src:url("../fonts/TsangerJinKai02-W04.ttf") format("truetype"),url("https://cdn.jsdelivr.net/gh/tw93/Kami@main/assets/fonts/TsangerJinKai02-W04.ttf") format("truetype");font-weight:400;font-style:normal;}
+@font-face{font-family:"TsangerJinKai02";src:url("../fonts/TsangerJinKai02-W05.ttf") format("truetype"),url("https://cdn.jsdelivr.net/gh/tw93/Kami@main/assets/fonts/TsangerJinKai02-W05.ttf") format("truetype");font-weight:500;font-style:normal;}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --p:#f5f4ed;--nb:#141413;--dw:#3d3d3a;--br:#1B365D;
+  --bd:#e8e6dc;--bds:#e5e3d8;--tb:#E4ECF5;--ol:#504e49;--st:#6b6a64;
+  --serif:"TsangerJinKai02","Source Han Seric SC","Noto Serif CJK SC","Songti SC","STSong",Georgia,serif;
+}
+html,body{background:#141413;width:1080px;height:1920px;overflow:hidden;}
+body{color:var(--nb);font-family:var(--serif);font-size:34pt;line-height:1.4;letter-spacing:.2pt;}
+.carousel{position:relative;width:1080px;height:1920px;overflow:hidden;background:var(--p);}
+.slide{position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;transition:opacity .6s;background:var(--p);overflow:hidden;}
+.slide.active{opacity:1;}
+.header{border-left:6pt solid var(--br);border-radius:4pt;padding-left:20pt;margin-bottom:24pt;display:flex;align-items:flex-end;justify-content:space-between;gap:40pt;}
+.title-block{flex:1;}
+.eyebrow{font-size:28pt;color:var(--br);letter-spacing:3pt;margin-bottom:6pt;}
+h1{font-family:var(--serif);font-size:58pt;font-weight:500;line-height:1.15;margin-bottom:10pt;}
+.subtitle{font-size:32pt;color:var(--ol);line-height:1.4;}
+.meta{font-size:28pt;color:var(--st);text-align:right;line-height:1.4;}
+h2{font-family:var(--serif);font-size:34pt;font-weight:500;margin-bottom:14pt;border-left:5pt solid var(--br);padding-left:14pt;}
+h2 .sub{font-size:26pt;color:var(--st);font-weight:400;margin-left:10pt;}
+table{width:100%;border-collapse:collapse;font-size:28pt;margin:0;break-inside:avoid;}
+table th{text-align:left;font-weight:500;color:var(--dw);padding:6pt 10pt;border-bottom:2pt solid var(--bd);}
+table td{padding:5pt 10pt;border-bottom:1pt solid var(--bds);vertical-align:top;line-height:1.35;}
+table td.num{text-align:right;font-variant-numeric:tabular-nums;}
+table th.num{text-align:right;}
+td.name,td.ind{max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tag{display:inline-block;background:var(--tb);color:var(--br);font-size:20pt;font-weight:500;padding:1pt 6pt;border-radius:6pt;letter-spacing:.3pt;}
+figure{margin:8pt 0 0;break-inside:avoid;}
+figcaption{font-size:26pt;color:var(--ol);margin-top:8pt;}
+.footer{position:absolute;bottom:0;left:0;right:0;padding:20pt 24pt 24pt;border-top:1pt solid var(--bd);font-size:22pt;color:var(--st);line-height:1.8;letter-spacing:.3pt;background:var(--p);}
+.content{padding:0 20pt;}
+.dots{position:absolute;bottom:110pt;left:50%;transform:translateX(-50%);display:flex;gap:12pt;z-index:10;}
+.dot{width:12pt;height:12pt;border-radius:50%;background:var(--bd);transition:background .3s;}
+.dot.active{background:var(--br);}
+.slide-label{position:absolute;top:20pt;right:20pt;font-size:22pt;color:var(--st);letter-spacing:1pt;z-index:10;}
+.dl-btn{position:absolute;top:20pt;right:160pt;z-index:20;background:rgba(255,255,255,.92);color:var(--br);border:1.5pt solid var(--br);border-radius:6pt;padding:6pt 14pt;font-size:20pt;font-weight:500;cursor:pointer;font-family:var(--serif);letter-spacing:.3pt;}
+.dl-btn:hover{background:var(--br);color:#fff;}
+.dl-btn:disabled{opacity:.4;cursor:wait;}
+"""
+
+CAROUSEL_JS = """
+(function(){
+  var slides=document.querySelectorAll('.slide'),dots=document.querySelectorAll('.dot'),cur=0,tid;
+  function show(i){slides.forEach(function(s,j){s.classList.toggle('active',j===i)});dots.forEach(function(d,j){d.classList.toggle('active',j===i)});cur=i;}
+  function next(){show((cur+1)%4);}
+  function start(){tid=setInterval(next,4000);}
+  function stop(){clearInterval(tid);}
+  dots.forEach(function(d){d.addEventListener('click',function(){stop();show(+d.dataset.index);start();});});
+  var c=document.getElementById('carousel'),tx=0;
+  c.addEventListener('touchstart',function(e){tx=e.touches[0].clientX;stop();},{passive:true});
+  c.addEventListener('touchend',function(e){var dx=e.changedTouches[0].clientX-tx;if(dx<-50)show((cur+1)%4);else if(dx>50)show((cur-1+4)%4);start();},{passive:true});
+  document.addEventListener('keydown',function(e){if(e.key==='ArrowRight'||e.key==='ArrowDown'){stop();show((cur+1)%4);start();}else if(e.key==='ArrowLeft'||e.key==='ArrowUp'){stop();show((cur-1+4)%4);start();}});
+  start();
+})();
+
+window.downloadCurrentSlide=async function(){
+  var btn=document.querySelector('.slide.active .dl-btn');
+  var slide=document.querySelector('.slide.active');
+  if(!slide){alert('找不到当前 slide');return;}
+  if(typeof html2canvas==='undefined'){alert('截图库未加载，请检查网络后重试');return;}
+  var origText=btn.textContent;btn.disabled=true;btn.textContent='渲染中...';
+  try{
+    var sleep=function(ms){return new Promise(function(r){setTimeout(r,ms);});};
+    await Promise.race([document.fonts.ready, sleep(5000)]);
+    var canvas=await html2canvas(slide,{scale:1,useCORS:true,backgroundColor:'#f5f4ed',logging:false});
+    var idx=Array.prototype.indexOf.call(slide.parentNode.querySelectorAll('.slide'),slide)+1;
+    var dateStr=document.querySelector('.slide.active .meta').textContent.trim();
+    var a=document.createElement('a');
+    a.download='dividend_slide'+idx+'_'+dateStr+'.png';
+    a.href=canvas.toDataURL('image/png');
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+  }catch(e){console.error(e);alert('截图失败: '+e.message);}
+  finally{btn.disabled=false;btn.textContent=origText;}
+};
+"""
+
+
+def _pct(v): return "—" if v is None else f"{v:.2f}%"
+
+
+def _build_carousel_row_curr(r, bars_map):
+    """slide1 实时表行（8 列）"""
+    ratio = bars_map.get(r["name"], {}).get("ratio")
+    rank_3y = r["rank_3y"] if r.get("rank_3y") else "—"
+    return (f'<tr><td>{r["rank"]}</td><td class="name">{r["name"]}</td>'
+            f'<td class="num">{_pct(r["yield_curr"])}</td>'
+            f'<td class="num">{_pct(r["yield_3y_avg"])}</td>'
+            f'<td class="num"><span class="tag">#{rank_3y}</span></td>'
+            f'<td class="ind">{r["industry"]}</td>'
+            f'<td class="num">{_pct(r["kofei"])}</td>'
+            f'<td class="num">{_pct(r["cagr"])}</td></tr>')
+
+
+def _build_carousel_row_ay(r):
+    """slide3 近3年表行（8 列）"""
+    rank_rt = r["rank_realtime"] if r.get("rank_realtime") else "—"
+    return (f'<tr><td>{r["rank"]}</td><td class="name">{r["name"]}</td>'
+            f'<td class="num">{_pct(r["yield_3y_avg"])}</td>'
+            f'<td class="num">{_pct(r["yield_curr"])}</td>'
+            f'<td class="num"><span class="tag">#{rank_rt}</span></td>'
+            f'<td class="ind">{r["industry"]}</td>'
+            f'<td class="num">{_pct(r["kofei"])}</td>'
+            f'<td class="num">{_pct(r["cagr"])}</td></tr>')
+
+
+def _build_vert_svg(stocks, yield_attr="yield_curr", fallback_yield_attr="yield_3y_avg"):
+    """生成 1080×1920 竖版 SVG 柱状图（viewBox 1040×720，BAR_W=52, STEP=86, BASE_X=88）"""
+    BAR_W, STEP, BASE_X = 52, 86, 88
+    MN, MX = 0.78, 1.25
+    YBASE, YSCALE = 540.0, 400.0/(MX-MN)
+    def yp(r): return YBASE - (r-MN)*YSCALE
+
+    bars=grid_svg=labels=base_svg=""
+    for i, st in enumerate(stocks):
+        cx = BASE_X + i*STEP
+        r = st.get("ratio")
+        if r is None: r = 1.0
+        yt = yp(r); h = YBASE-yt
+        col = "#1B365D" if r>=1.0 else "#B2B1AC"
+        bars += f'<rect x="{cx-BAR_W//2}" y="{yt}" width="{BAR_W}" height="{h}" fill="{col}" rx="4"/>\n'
+        bars += f'<text x="{cx}" y="{yt-8}" fill="#141413" font-size="22" text-anchor="middle" font-weight="500">{r:.3f}</text>\n'
+        nm = st["name"]
+        yv = st.get(yield_attr)
+        if yv is None:
+            yv = st.get(fallback_yield_attr) or 0
+        dv = f"{yv:.2f}%"
+        labels += f'<text x="{cx}" y="608" fill="#504e49" font-size="22" text-anchor="middle" transform="rotate(-45 {cx} 608)">{nm}</text>\n'
+        labels += f'<text x="{cx}" y="640" fill="#504e49" font-size="18" text-anchor="middle" transform="rotate(-45 {cx} 640)">{dv}</text>\n'
+
+    for r_ in [0.80,0.90,0.95,1.00,1.05,1.10,1.15,1.20,1.25]:
+        y = yp(r_)
+        grid_svg += f'<line x1="60" y1="{y}" x2="970" y2="{y}" stroke="#e8e7e1" stroke-width="1"/>\n'
+        grid_svg += f'<text x="50" y="{y+8}" fill="#6b6a64" font-size="20" text-anchor="end">{r_:.2f}</text>\n'
+    by = yp(1.00)
+    base_svg = f'<line x1="60" y1="{by}" x2="970" y2="{by}" stroke="#1B365D" stroke-width="2" stroke-dasharray="8 6"/>\n'
+    base_svg += f'<text x="965" y="{by+10}" fill="#1B365D" font-size="20" text-anchor="end">M120=1</text>\n'
+
+    return (f'<svg viewBox="0 0 1040 720" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;">\n'
+            f'<rect width="100%" height="100%" fill="#f5f4ed"/>\n'
+            f'<line x1="60" y1="{YBASE}" x2="970" y2="{YBASE}" stroke="#141413" stroke-width="1.5"/>\n'
+            f'{grid_svg}{base_svg}{bars}{labels}\n'
+            f'<text x="20" y="350" fill="#6b6a64" font-size="20" text-anchor="middle" transform="rotate(-90 20 350)" letter-spacing="2">实时价/M120</text>\n</svg>')
+
+
+def _render_carousel_html(top_curr, top_3y, top_curr_bars, total_stocks, today_str):
+    """渲染 1080×1920 移动端竖版轮播 HTML（4 slide），每 slide 含⬇下载原图按钮"""
+    bars_map = {b["name"]: b for b in top_curr_bars}
+    rows1 = "".join(_build_carousel_row_curr(r, bars_map) for r in top_curr)
+    rows3 = "".join(_build_carousel_row_ay(r) for r in top_3y)
+    svg1 = _build_vert_svg(top_curr, yield_attr="yield_curr", fallback_yield_attr="yield_3y_avg")
+    svg2 = _build_vert_svg(top_3y, yield_attr="yield_3y_avg", fallback_yield_attr="yield_curr")
+
+    footer_left = f"数据来源：dividend-select · {total_stocks}只高股息A股样本"
+    footer_right = f"{today_str} · 仅供投资参考，不构成投资建议"
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1080,height=1920">
+<title>A股高股息率TOP10轮播</title>
+<style>{CAROUSEL_CSS}</style>
+</head>
+<body>
+<div class="carousel" id="carousel">
+
+  <div class="slide active" id="slide1">
+    <div class="slide-label">1 / 4</div>
+    <button class="dl-btn" onclick="downloadCurrentSlide()">⬇ 下载当前图</button>
+    <div class="content">
+      <div class="header">
+        <div class="title-block">
+          <div class="eyebrow">A股 · 股息率分析</div>
+          <h1>实时股息率TOP10</h1>
+        </div>
+        <div class="meta">{today_str}</div>
+      </div>
+      <h2>实时股息率TOP10<span class="sub">近3年均值 &amp; 排名 &amp; 行业 &amp; 扣非同比 &amp; 3年CAGR</span></h2>
+      <table>
+        <thead><tr><th>#</th><th>股票</th><th class="num">实时</th><th class="num">近3年均值</th><th class="num">近3年排名</th><th>行业</th><th class="num">扣非同比</th><th class="num">3年CAGR</th></tr></thead>
+        <tbody>{rows1}</tbody>
+      </table>
+    </div>
+    <div class="footer">
+      {footer_left}<br>
+      {footer_right}
+    </div>
+  </div>
+
+  <div class="slide" id="slide2">
+    <div class="slide-label">2 / 4</div>
+    <button class="dl-btn" onclick="downloadCurrentSlide()">⬇ 下载当前图</button>
+    <div class="content">
+      <div class="header">
+        <div class="title-block">
+          <div class="eyebrow">A股 · 股息率分析</div>
+          <h1>实时股息率TOP10</h1>
+        </div>
+        <div class="meta">{today_str}</div>
+      </div>
+      <h2>实时价/M120比值<span class="sub">蓝色≥1.00，灰色&lt;1.00</span></h2>
+      <figure>{svg1}</figure>
+      <figcaption>蓝色表示价格站上M120均线，蓝色虚线为M120基准线</figcaption>
+    </div>
+    <div class="footer">
+      {footer_left}<br>
+      {footer_right}
+    </div>
+  </div>
+
+  <div class="slide" id="slide3">
+    <div class="slide-label">3 / 4</div>
+    <button class="dl-btn" onclick="downloadCurrentSlide()">⬇ 下载当前图</button>
+    <div class="content">
+      <div class="header">
+        <div class="title-block">
+          <div class="eyebrow">A股 · 股息率分析</div>
+          <h1>近3年均值TOP10</h1>
+        </div>
+        <div class="meta">{today_str}</div>
+      </div>
+      <h2>近3年均值TOP10<span class="sub">实时股息率 &amp; 排名 &amp; 行业 &amp; 扣非同比 &amp; 3年CAGR</span></h2>
+      <table>
+        <thead><tr><th>#</th><th>股票</th><th class="num">近3年均值</th><th class="num">实时</th><th class="num">实时排名</th><th>行业</th><th class="num">扣非同比</th><th class="num">3年CAGR</th></tr></thead>
+        <tbody>{rows3}</tbody>
+      </table>
+    </div>
+    <div class="footer">
+      {footer_left}<br>
+      {footer_right}
+    </div>
+  </div>
+
+  <div class="slide" id="slide4">
+    <div class="slide-label">4 / 4</div>
+    <button class="dl-btn" onclick="downloadCurrentSlide()">⬇ 下载当前图</button>
+    <div class="content">
+      <div class="header">
+        <div class="title-block">
+          <div class="eyebrow">A股 · 股息率分析</div>
+          <h1>近3年均值TOP10</h1>
+        </div>
+        <div class="meta">{today_str}</div>
+      </div>
+      <h2>实时价/M120比值<span class="sub">蓝色≥1.00，灰色&lt;1.00</span></h2>
+      <figure>{svg2}</figure>
+      <figcaption>蓝色表示价格站上M120均线，蓝色虚线为M120基准线</figcaption>
+    </div>
+    <div class="footer">
+      {footer_left}<br>
+      {footer_right}
+    </div>
+  </div>
+
+  <div class="dots">
+    <div class="dot active" data-index="0"></div>
+    <div class="dot" data-index="1"></div>
+    <div class="dot" data-index="2"></div>
+    <div class="dot" data-index="3"></div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script>{CAROUSEL_JS}</script>
+</body>
+</html>"""
