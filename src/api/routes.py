@@ -39,6 +39,7 @@ from src.services.realtime_service import get_realtime_service
 from src.services.sort_service import SortService
 from src.services.stock_info_service import get_stock_info_service
 from src.services.shareholder_financial_reader import ShareholderReader, FinancialReader
+from src.services import weekly_comparison
 from src.data.financial_fetcher import FinancialFetcher
 from src.utils.helpers import save_csv_data, DATA_DIR
 from src.utils.logger import setup_logger
@@ -208,8 +209,21 @@ def _row_to_stock_model(row: pd.Series, info: Optional[dict] = None,
         debt_asset_ratio=financial_data.get("debt_asset_ratio") if financial_data else None,
         net_profit_ex_non_recurring_yoy=financial_data.get("net_profit_ex_non_recurring_yoy") if financial_data else None,
         net_profit_cagr_3y=financial_data.get("net_profit_cagr_3y") if financial_data else None,
+        eps=financial_data.get("eps") if financial_data else None,
+        eps_year=financial_data.get("eps_year") if financial_data else None,
+        payout_ratio=None,  # 下面计算后赋值
         dividend_history=None,  # 先设为 None，后面解析后替换
     )
+
+    # 计算分红比例：使用最近一期年报的 EPS 同比年度的 DPS
+    # 仅在 EPS > 0 且对应年度 DPS > 0 时计算，否则保持 None
+    eps = financial_data.get("eps") if financial_data else None
+    eps_year = financial_data.get("eps_year") if financial_data else None
+    if eps is not None and eps > 0 and eps_year is not None:
+        dps_key = f"{eps_year}年分红(元/股)"
+        dps = _to_float(row.get(dps_key))
+        if dps is not None and dps > 0:
+            stock.payout_ratio = round(dps / eps * 100, 2)
 
     # 解析近5年分红详情
     import json
@@ -372,6 +386,8 @@ async def get_stocks(
                     "debt_asset_ratio": float(fi_row["资产负债率"]) if pd.notna(fi_row.get("资产负债率")) else None,
                     "net_profit_ex_non_recurring_yoy": float(fi_row["扣非净利润同比"]) if pd.notna(fi_row.get("扣非净利润同比")) else None,
                     "net_profit_cagr_3y": float(fi_row["3年复合增长率"]) if pd.notna(fi_row.get("3年复合增长率")) else None,
+                    "eps": float(fi_row["最新EPS(元)"]) if pd.notna(fi_row.get("最新EPS(元)")) else None,
+                    "eps_year": int(fi_row["最新EPS年度"]) if pd.notna(fi_row.get("最新EPS年度")) else None,
                 }
 
     # 无分页，返回所有数据
@@ -1595,6 +1611,8 @@ async def _load_report_context() -> dict:
             financial_map[code] = {
                 "net_profit_ex_non_recurring_yoy": float(fi_row["扣非净利润同比"]) if pd.notna(fi_row.get("扣非净利润同比")) else None,
                 "net_profit_cagr_3y": float(fi_row["3年复合增长率"]) if pd.notna(fi_row.get("3年复合增长率")) else None,
+                "eps": float(fi_row["最新EPS(元)"]) if pd.notna(fi_row.get("最新EPS(元)")) else None,
+                "eps_year": int(fi_row["最新EPS年度"]) if pd.notna(fi_row.get("最新EPS年度")) else None,
             }
 
     # 读取申万行业
@@ -1621,10 +1639,18 @@ async def _load_report_context() -> dict:
             rank_3y = df[df["3年平均股息率(%)"] >= avg_yield_3y_val].shape[0]
         else:
             rank_3y = None
+        div_per_share = float(row["2025年分红(元/股)"]) if pd.notna(row.get("2025年分红(元/股)")) else None
+        eps = financial_map.get(code, {}).get("eps")
+        # 分红比例 = 分红 / EPS × 100%
+        payout_ratio = None
+        if div_per_share and eps and eps > 0:
+            payout_ratio = round(div_per_share / eps * 100, 2)
         top_curr.append({
             "rank": rank,
             "name": str(row["股票名称"]),
             "yield_curr": float(row["_yield_realtime"]) if pd.notna(row.get("_yield_realtime")) else None,
+            "dividend_per_share": div_per_share,
+            "payout_ratio": payout_ratio,
             "yield_3y_avg": avg_yield_3y_val,
             "rank_3y": rank_3y,
             "rank_realtime": rank,
@@ -1661,6 +1687,11 @@ async def _load_report_context() -> dict:
             ratio_val = ratio / 100 + 1
         else:
             ratio_val = None
+        div_per_share = float(row["2025年分红(元/股)"]) if pd.notna(row.get("2025年分红(元/股)")) else None
+        eps = financial_map.get(code, {}).get("eps")
+        payout_ratio = None
+        if div_per_share and eps and eps > 0:
+            payout_ratio = round(div_per_share / eps * 100, 2)
         top_3y.append({
             "rank": rank,
             "name": str(row["股票名称"]),
@@ -1669,6 +1700,7 @@ async def _load_report_context() -> dict:
             "rank_realtime": rank_realtime_map.get(code),
             "ratio": ratio_val,
             "m120": m120_info.get("m120"),
+            "payout_ratio": payout_ratio,
             "industry": sw_info.get("sw_level1") or row.get("来源指数") or "",
             "kofei": financial_map.get(code, {}).get("net_profit_ex_non_recurring_yoy"),
             "cagr": financial_map.get(code, {}).get("net_profit_cagr_3y"),
@@ -1712,9 +1744,43 @@ async def _load_report_context() -> dict:
 
     total_stocks = len(df)
 
+    # === 全量 ratio_map + yield_map + 3y_map：所有股票（用于存档）===
+    ratio_map = {}
+    full_yield_map = {}
+    full_3y_map = {}
+    for _, row in df.iterrows():
+        code = str(row["股票代码"]).zfill(6)
+        name = str(row["股票名称"])
+        m120_info = m120_data.get(code, {})
+        ratio_raw = m120_info.get("realtime_deviation")
+        if ratio_raw is not None:
+            ratio_map[name] = round(ratio_raw / 100 + 1, 4)
+        if code in yield_realtime_map:
+            full_yield_map[name] = yield_realtime_map[code]
+        avg_3y = row.get("3年平均股息率(%)")
+        if pd.notna(avg_3y):
+            full_3y_map[name] = float(avg_3y)
+
+    # 把 ratio 加到 top_curr / top_3y 记录里（compute_changes 依赖此字段）
+    for r in top_curr:
+        r["ratio"] = ratio_map.get(r["name"])
+    for r in top_3y:
+        r["ratio"] = ratio_map.get(r["name"])
+
+    # === 排名对比：加载上周 snapshot，计算变动 ===
+    prev_snapshot = weekly_comparison.load_previous_snapshot(today_str)
+    top_curr_enr, top_3y_enr = weekly_comparison.compute_changes(top_curr, top_3y, prev_snapshot)
+
+    # 生成报告后自动存档（同一周内只存一次，保证周对比）
+    if weekly_comparison.should_save_snapshot(today_str):
+        weekly_comparison.save_snapshot(
+            top_curr, top_3y, today_str, ratio_map,
+            full_yield_map=full_yield_map, full_3y_map=full_3y_map
+        )
+
     return {
-        "top_curr": top_curr,
-        "top_3y": top_3y,
+        "top_curr": top_curr_enr,
+        "top_3y": top_3y_enr,
         "top_kofei": top_kofei,
         "top_cagr": top_cagr,
         "top_curr_bars": top_curr_bars,
@@ -2122,20 +2188,27 @@ body{background:#1a1a1a;margin:0;padding:0;}
 .footer{bottom:40pt !important;}
 /* iOS 字体回退（iPhone 打开更原生）*/
 :root{--serif:"TsangerJinKai02","PingFang SC","Hiragino Sans GB","Source Han Serif SC","Noto Serif CJK SC",Georgia,serif;}
+/* 排名变动颜色 */
+.rank-up{color:#27ae60;}
+.rank-down{color:#c0392b;}
+.rank-same{color:#7f8c8d;}
+.rank-new{color:#8e44ad;}
+/* 上角标样式：用于实时排名 + 变动符号（#20↓2）或股票名后的变动（思维列控↓2） */
+table td sup{font-size:14pt;font-weight:500;margin-left:3pt;vertical-align:super;line-height:0;}
 """
 
 CAROUSEL_JS = """
 (function(){
   var slides=document.querySelectorAll('.slide'),dots=document.querySelectorAll('.dot'),cur=0,tid;
   function show(i){slides.forEach(function(s,j){s.classList.toggle('active',j===i)});dots.forEach(function(d,j){d.classList.toggle('active',j===i)});cur=i;}
-  function next(){show((cur+1)%4);}
+  function next(){show((cur+1)%6);}
   function start(){tid=setInterval(next,10000);}
   function stop(){clearInterval(tid);}
   dots.forEach(function(d){d.addEventListener('click',function(){stop();show(+d.dataset.index);start();});});
   var c=document.getElementById('carousel'),tx=0;
   c.addEventListener('touchstart',function(e){tx=e.touches[0].clientX;stop();},{passive:true});
-  c.addEventListener('touchend',function(e){var dx=e.changedTouches[0].clientX-tx;if(dx<-50)show((cur+1)%4);else if(dx>50)show((cur-1+4)%4);start();},{passive:true});
-  document.addEventListener('keydown',function(e){if(e.key==='ArrowRight'||e.key==='ArrowDown'){stop();show((cur+1)%4);start();}else if(e.key==='ArrowLeft'||e.key==='ArrowUp'){stop();show((cur-1+4)%4);start();}});
+  c.addEventListener('touchend',function(e){var dx=e.changedTouches[0].clientX-tx;if(dx<-50)show((cur+1)%6);else if(dx>50)show((cur-1+6)%6);start();},{passive:true});
+  document.addEventListener('keydown',function(e){if(e.key==='ArrowRight'||e.key==='ArrowDown'){stop();show((cur+1)%6);start();}else if(e.key==='ArrowLeft'||e.key==='ArrowUp'){stop();show((cur-1+6)%6);start();}});
   start();
 })();
 
@@ -2220,28 +2293,110 @@ def _pct(v): return "—" if v is None else f"{v:.2f}%"
 
 
 def _build_carousel_row_curr(r, bars_map):
-    """slide1 实时表行（8 列）"""
-    ratio = bars_map.get(r["name"], {}).get("ratio")
-    rank_3y = r["rank_3y"] if r.get("rank_3y") else "—"
+    """slide1 实时表行（7 列：# | 股票 | 实时 | 分红比例 | 行业 | 扣非同比 | 3年CAGR）"""
+    payout = r.get("payout_ratio")
+    payout_str = f"{payout:.2f}%" if payout is not None else "—"
     return (f'<tr><td>{r["rank"]}</td><td class="name">{r["name"]}</td>'
             f'<td class="num">{_pct(r["yield_curr"])}</td>'
-            f'<td class="num">{_pct(r["yield_3y_avg"])}</td>'
-            f'<td class="num"><span class="tag">#{rank_3y}</span></td>'
+            f'<td class="num">{payout_str}</td>'
             f'<td class="ind">{r["industry"]}</td>'
             f'<td class="num">{_pct(r["kofei"])}</td>'
             f'<td class="num">{_pct(r["cagr"])}</td></tr>')
 
 
 def _build_carousel_row_ay(r):
-    """slide3 近3年表行（8 列）"""
-    rank_rt = r["rank_realtime"] if r.get("rank_realtime") else "—"
+    """slide4 近3年表行（6 列：# | 股票 | 近3年均值 | 分红比例 | 行业 | 扣非同比 | 3年CAGR）"""
+    payout = r.get("payout_ratio")
+    payout_str = f"{payout:.2f}%" if payout is not None else "—"
     return (f'<tr><td>{r["rank"]}</td><td class="name">{r["name"]}</td>'
             f'<td class="num">{_pct(r["yield_3y_avg"])}</td>'
-            f'<td class="num">{_pct(r["yield_curr"])}</td>'
-            f'<td class="num"><span class="tag">#{rank_rt}</span></td>'
+            f'<td class="num">{payout_str}</td>'
             f'<td class="ind">{r["industry"]}</td>'
             f'<td class="num">{_pct(r["kofei"])}</td>'
             f'<td class="num">{_pct(r["cagr"])}</td></tr>')
+
+
+def _build_delta_cell(delta_display):
+    """排名变动单元格，颜色根据变动方向（不再显示"新进"）"""
+    if delta_display is None or delta_display == "—":
+        return '<td class="num"><span class="rank-same">—</span></td>'
+    if delta_display.startswith("↑"):
+        return f'<td class="num"><span class="rank-up">{delta_display}</span></td>'
+    elif delta_display.startswith("↓"):
+        return f'<td class="num"><span class="rank-down">{delta_display}</span></td>'
+    else:
+        return f'<td class="num"><span class="rank-same">{delta_display}</span></td>'
+
+
+def _build_ratio_delta_cell(delta_display):
+    """M120比值数值变动单元格，颜色根据方向（始终是数值，不显示"新进"）"""
+    if delta_display is None or delta_display == "—":
+        return '<td class="num"><span class="rank-same">—</span></td>'
+    if delta_display.startswith("+"):
+        return f'<td class="num"><span class="rank-up">{delta_display}</span></td>'
+    else:
+        return f'<td class="num"><span class="rank-down">{delta_display}</span></td>'
+
+
+def _build_name_with_delta(name, delta_display):
+    """股票名 + 变动角标：思维列控↓2（无变化时只显示名字，不显示角标）"""
+    if delta_display is None or delta_display == "—":
+        return f'<td class="name">{name}</td>'
+    if delta_display.startswith("↑"):
+        return f'<td class="name">{name}<sup class="rank-up">{delta_display}</sup></td>'
+    if delta_display.startswith("↓"):
+        return f'<td class="name">{name}<sup class="rank-down">{delta_display}</sup></td>'
+    return f'<td class="name">{name}</td>'
+
+
+def _build_carousel_row_curr_delta(r, bars_map):
+    """slide2 实时股息率TOP10 · 排名变动行（7 列：# | 股票+变动角标 | 实时股息率 | 近3年均值 | 近3年排名 | M120比值 | 比值变动）"""
+    ratio = bars_map.get(r["name"], {}).get("ratio")
+    ratio_str = f"{ratio:.3f}" if ratio is not None else "—"
+    rank_3y = r.get("rank_3y") if r.get("rank_3y") else "—"
+    ratio_delta_cell = _build_ratio_delta_cell(r.get("ratio_delta_display"))
+    name_cell = _build_name_with_delta(r["name"], r.get("rank_delta_ry_display"))
+    return (f'<tr>'
+            f'<td>{r["rank"]}</td>'
+            f'{name_cell}'
+            f'<td class="num">{_pct(r["yield_curr"])}</td>'
+            f'<td class="num">{_pct(r["yield_3y_avg"])}</td>'
+            f'<td class="num"><span class="tag">#{rank_3y}</span></td>'
+            f'<td class="num">{ratio_str}</td>'
+            f'{ratio_delta_cell}'
+            f'</tr>')
+
+
+def _build_realtime_rank_cell(rank, delta_display):
+    """实时排名 + 变动符号（角标放在排名号左上角）：²#1 / ¹#3（无变化时只显示排名）"""
+    rank_str = f'<span class="tag">#{rank}</span>' if rank else '<span class="tag">—</span>'
+    if delta_display is None or delta_display == "—":
+        return f'<td class="num">{rank_str}</td>'
+    if delta_display.startswith("↑"):
+        return f'<td class="num"><sup class="rank-up">{delta_display}</sup>{rank_str}</td>'
+    if delta_display.startswith("↓"):
+        return f'<td class="num"><sup class="rank-down">{delta_display}</sup>{rank_str}</td>'
+    return f'<td class="num">{rank_str}</td>'
+
+
+def _build_carousel_row_ay_delta(r):
+    """slide5 近3年股息率TOP10 · 排名变动行（7 列：# | 股票 | 近3年均值 | 实时股息率 | 实时排名 | M120比值 | 比值变动）"""
+    ratio = r.get("ratio")
+    ratio_str = f"{ratio:.3f}" if ratio is not None else "—"
+    realtime_rank_cell = _build_realtime_rank_cell(
+        r.get("rank_realtime"),
+        r.get("rank_delta_realtime_display")
+    )
+    ratio_delta_cell = _build_ratio_delta_cell(r.get("ratio_delta_display"))
+    return (f'<tr>'
+            f'<td>{r["rank"]}</td>'
+            f'<td class="name">{r["name"]}</td>'
+            f'<td class="num">{_pct(r["yield_3y_avg"])}</td>'
+            f'<td class="num">{_pct(r["yield_curr"])}</td>'
+            f'{realtime_rank_cell}'
+            f'<td class="num">{ratio_str}</td>'
+            f'{ratio_delta_cell}'
+            f'</tr>')
 
 
 def _build_vert_svg(stocks, yield_attr="yield_curr", fallback_yield_attr="yield_3y_avg"):
@@ -2289,16 +2444,19 @@ def _build_vert_svg(stocks, yield_attr="yield_curr", fallback_yield_attr="yield_
 
 
 def _render_carousel_html(top_curr, top_3y, top_curr_bars, total_stocks, today_str):
-    """渲染 1080×1920 移动端竖版轮播 HTML（4 slide），每 slide 含⬇下载原图按钮"""
+    """渲染 1080×1920 移动端竖版轮播 HTML（6 slide），每 slide 含⬇下载原图按钮"""
     bars_map = {b["name"]: b for b in top_curr_bars}
     rows1 = "".join(_build_carousel_row_curr(r, bars_map) for r in top_curr)
     rows3 = "".join(_build_carousel_row_ay(r) for r in top_3y)
+    # slide 5 & 6 排名变动
+    rows5 = "".join(_build_carousel_row_curr_delta(r, bars_map) for r in top_curr)
+    rows6 = "".join(_build_carousel_row_ay_delta(r) for r in top_3y)
     # slide 2 柱状图用 top_curr_bars（含 ratio + yield_curr），不用 top_curr（缺 ratio）
     svg1 = _build_vert_svg(top_curr_bars, yield_attr="yield_curr")
     # slide 4 柱状图用 top_3y（含 ratio + yield_3y_avg）
     svg2 = _build_vert_svg(top_3y, yield_attr="yield_3y_avg", fallback_yield_attr="yield_curr")
 
-    footer_left = f"数据来源：dividend-select · {total_stocks}只高股息A股样本"
+    footer_left = f"数据来源：高息研究室 · {total_stocks}只高股息A股样本"
     footer_right = f"{today_str} · 仅供投资参考，不构成投资建议"
 
     return f"""<!DOCTYPE html>
@@ -2323,7 +2481,7 @@ def _render_carousel_html(top_curr, top_3y, top_curr_bars, total_stocks, today_s
 <div class="carousel" id="carousel">
 
   <div class="slide active" id="slide1">
-    <div class="slide-label">1 / 4</div>
+    <div class="slide-label">1 / 6</div>
     <button class="dl-btn" onclick="downloadCurrentSlide()">⬇ 下载当前图</button>
     <div class="content">
       <div class="header">
@@ -2333,9 +2491,9 @@ def _render_carousel_html(top_curr, top_3y, top_curr_bars, total_stocks, today_s
         </div>
         <div class="meta">{today_str}</div>
       </div>
-      <h2>实时股息率TOP10<span class="sub">近3年均值 &amp; 排名 &amp; 行业 &amp; 扣非同比 &amp; 3年CAGR</span></h2>
+      <h2><span class="sub">分红比例 &amp; 行业 &amp; 扣非同比 &amp; 3年CAGR</span></h2>
       <table>
-        <thead><tr><th>#</th><th>股票</th><th class="num">实时</th><th class="num">近3年均值</th><th class="num">近3年排名</th><th>行业</th><th class="num">扣非同比</th><th class="num">3年CAGR</th></tr></thead>
+        <thead><tr><th>#</th><th>股票</th><th class="num">实时</th><th class="num">分红</th><th>行业</th><th class="num">扣非同比</th><th class="num">3年CAGR</th></tr></thead>
         <tbody>{rows1}</tbody>
       </table>
     </div>
@@ -2346,7 +2504,30 @@ def _render_carousel_html(top_curr, top_3y, top_curr_bars, total_stocks, today_s
   </div>
 
   <div class="slide" id="slide2">
-    <div class="slide-label">2 / 4</div>
+    <div class="slide-label">2 / 6</div>
+    <button class="dl-btn" onclick="downloadCurrentSlide()">⬇ 下载当前图</button>
+    <div class="content">
+      <div class="header">
+        <div class="title-block">
+          <div class="eyebrow">A股 · 股息率分析</div>
+          <h1>实时股息率TOP10</h1>
+        </div>
+        <div class="meta">{today_str}</div>
+      </div>
+      <h2><span class="sub">本周变动 &amp; 近3年均值/排名</span></h2>
+      <table>
+        <thead><tr><th>#</th><th>股票</th><th class="num">实时股息率</th><th class="num">近3年均值</th><th class="num">近3年排名</th><th class="num">M120比值</th><th class="num">比值变动</th></tr></thead>
+        <tbody>{rows5}</tbody>
+      </table>
+    </div>
+    <div class="footer">
+      {footer_left}<br>
+      {footer_right}
+    </div>
+  </div>
+
+  <div class="slide" id="slide3">
+    <div class="slide-label">3 / 6</div>
     <button class="dl-btn" onclick="downloadCurrentSlide()">⬇ 下载当前图</button>
     <div class="content">
       <div class="header">
@@ -2366,8 +2547,8 @@ def _render_carousel_html(top_curr, top_3y, top_curr_bars, total_stocks, today_s
     </div>
   </div>
 
-  <div class="slide" id="slide3">
-    <div class="slide-label">3 / 4</div>
+  <div class="slide" id="slide4">
+    <div class="slide-label">4 / 6</div>
     <button class="dl-btn" onclick="downloadCurrentSlide()">⬇ 下载当前图</button>
     <div class="content">
       <div class="header">
@@ -2377,9 +2558,9 @@ def _render_carousel_html(top_curr, top_3y, top_curr_bars, total_stocks, today_s
         </div>
         <div class="meta">{today_str}</div>
       </div>
-      <h2>近3年均值TOP10<span class="sub">实时股息率 &amp; 排名 &amp; 行业 &amp; 扣非同比 &amp; 3年CAGR</span></h2>
+      <h2>近3年均值TOP10<span class="sub">分红比例 &amp; 行业 &amp; 扣非同比 &amp; 3年CAGR</span></h2>
       <table>
-        <thead><tr><th>#</th><th>股票</th><th class="num">近3年均值</th><th class="num">实时</th><th class="num">实时排名</th><th>行业</th><th class="num">扣非同比</th><th class="num">3年CAGR</th></tr></thead>
+        <thead><tr><th>#</th><th>股票</th><th class="num">近3年均值</th><th class="num">分红</th><th>行业</th><th class="num">扣非同比</th><th class="num">3年CAGR</th></tr></thead>
         <tbody>{rows3}</tbody>
       </table>
     </div>
@@ -2389,8 +2570,31 @@ def _render_carousel_html(top_curr, top_3y, top_curr_bars, total_stocks, today_s
     </div>
   </div>
 
-  <div class="slide" id="slide4">
-    <div class="slide-label">4 / 4</div>
+  <div class="slide" id="slide5">
+    <div class="slide-label">5 / 6</div>
+    <button class="dl-btn" onclick="downloadCurrentSlide()">⬇ 下载当前图</button>
+    <div class="content">
+      <div class="header">
+        <div class="title-block">
+          <div class="eyebrow">A股 · 股息率分析</div>
+          <h1>近3年均值TOP10</h1>
+        </div>
+        <div class="meta">{today_str}</div>
+      </div>
+      <h2><span class="sub">本周变动</span></h2>
+      <table>
+        <thead><tr><th>#</th><th>股票</th><th class="num">近3年均值</th><th class="num">实时股息率</th><th class="num">实时排名</th><th class="num">M120比值</th><th class="num">比值变动</th></tr></thead>
+        <tbody>{rows6}</tbody>
+      </table>
+    </div>
+    <div class="footer">
+      {footer_left}<br>
+      {footer_right}
+    </div>
+  </div>
+
+  <div class="slide" id="slide6">
+    <div class="slide-label">6 / 6</div>
     <button class="dl-btn" onclick="downloadCurrentSlide()">⬇ 下载当前图</button>
     <div class="content">
       <div class="header">
@@ -2415,6 +2619,8 @@ def _render_carousel_html(top_curr, top_3y, top_curr_bars, total_stocks, today_s
     <div class="dot" data-index="1"></div>
     <div class="dot" data-index="2"></div>
     <div class="dot" data-index="3"></div>
+    <div class="dot" data-index="4"></div>
+    <div class="dot" data-index="5"></div>
   </div>
 </div>
   <div class="home-indicator"></div>

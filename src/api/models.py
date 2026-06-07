@@ -98,6 +98,9 @@ class DividendStock(BaseModel):
     debt_asset_ratio: Optional[float] = Field(None, description="资产负债率(%)")
     net_profit_ex_non_recurring_yoy: Optional[float] = Field(None, description="扣非净利润同比增速(%)")
     net_profit_cagr_3y: Optional[float] = Field(None, description="扣非净利润3年复合增长率(%)")
+    eps: Optional[float] = Field(None, description="最近一期年报摊薄每股收益(元)")
+    eps_year: Optional[int] = Field(None, description="最近一期年报年度")
+    payout_ratio: Optional[float] = Field(None, description="分红比例(%)：每股分红/每股净利润×100")
 
     # 近5年分红详情
     dividend_history: Optional[list[DividendHistoryItem]] = Field(None, description="近5年分红详情")
