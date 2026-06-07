@@ -34,3 +34,19 @@ build/
 # 操作系统
 .DS_Store
 Thumbs.db
+# 测试产物（手工生成的HTML调试文件、截图等）
+dividend_*.html
+test_carousel.html
+screenshot_*.jpeg
+screenshot_*.png
+kami_data.json
+failed_stocks.txt
+
+# 运行时数据
+data/snapshots/
+data/2026-04/
+data/2026-05/
+data/2026-06/
+
+# 本地配置
+.env.local
