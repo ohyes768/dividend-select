@@ -41,6 +41,7 @@ screenshot_*.jpeg
 screenshot_*.png
 kami_data.json
 failed_stocks.txt
+dividend_export_*.csv
 
 # 运行时数据
 data/snapshots/
