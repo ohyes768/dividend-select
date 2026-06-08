@@ -1,6 +1,7 @@
 """
 股息率计算核心模块
 """
+import os
 import random
 import time
 from datetime import datetime, date
@@ -43,9 +44,9 @@ _consecutive_failures = 0
 MAX_CONSECUTIVE_FAILURES = 5
 
 # 阿里云行情API配置
-ALIYUN_API_HOST = "http://alirmcom2.market.alicloudapi.com"
-ALIYUN_API_PATH = "/query/comkm"
-ALIYUN_API_APPCODE = "404de3caed3742ca897e75ddff633066"
+ALIYUN_API_HOST = os.getenv("ALIYUN_API_HOST", "http://alirmcom2.market.alicloudapi.com")
+ALIYUN_API_PATH = os.getenv("ALIYUN_API_PATH", "/query/comkm")
+ALIYUN_API_APPCODE = os.getenv("ALIYUN_API_APPCODE", "404de3caed3742ca897e75ddff633066")
 
 
 def is_rate_limited() -> bool:

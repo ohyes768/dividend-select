@@ -13,6 +13,8 @@ dependencies = [
     "pydantic>=2.5.0",
     "pandas>=2.0.0",
     "efinance>=0.5.7",
+    # 环境变量加载
+    "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]

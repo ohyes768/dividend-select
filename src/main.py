@@ -6,6 +6,15 @@ from contextlib import asynccontextmanager
 import sys
 from pathlib import Path
 
+# 加载 .env / .env.local（在所有 import 之前，确保 os.getenv 读到值）
+try:
+    from dotenv import load_dotenv
+    PROJECT_ROOT = Path(__file__).parent.parent
+    load_dotenv(PROJECT_ROOT / ".env")
+    load_dotenv(PROJECT_ROOT / ".env.local", override=True)  # .env.local 优先级最高
+except ImportError:
+    pass  # 没装 python-dotenv 也不报错，走 os.getenv 默认值
+
 # 添加项目根目录到 Python 路径
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
