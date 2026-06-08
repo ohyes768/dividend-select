@@ -2154,22 +2154,22 @@ h2{font-family:var(--serif);font-size:34pt;font-weight:500;margin-bottom:14pt;bo
 h2 .sub{font-size:26pt;color:var(--st);font-weight:400;margin-left:10pt;}
 table{width:100%;border-collapse:collapse;font-size:22pt;margin:0;break-inside:avoid;}
 table th{text-align:left;font-weight:500;color:var(--dw);padding:4pt 6pt;border-bottom:2pt solid var(--bd);white-space:nowrap;}
-table td{padding:8pt 6pt;border-bottom:1pt solid var(--bds);vertical-align:top;line-height:1.55;}
-table td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+table td{padding:14pt 6pt;border-bottom:1pt solid var(--bds);vertical-align:top;line-height:1.55;white-space:nowrap;}
+table td.num{text-align:right;font-variant-numeric:tabular-nums;}
 table th.num{text-align:right;}
 /* 股票名/行业列：允许换行（4字以上如"建筑装饰"会折成 2 行），line-height 略小于表体 1.55，因为换行后视觉密度需要更小 */
 td.name,td.ind{max-width:200px;word-wrap:break-word;overflow-wrap:anywhere;line-height:1.5;}
 .tag{display:inline-block;background:var(--tb);color:var(--br);font-size:20pt;font-weight:500;padding:1pt 6pt;border-radius:6pt;letter-spacing:.3pt;}
 figure{margin:8pt 0 0;break-inside:avoid;}
 figcaption{font-size:26pt;color:var(--ol);margin-top:8pt;}
-.footer{position:absolute;bottom:0;left:0;right:0;padding:20pt 24pt 24pt;border-top:1pt solid var(--bd);font-size:22pt;color:var(--st);line-height:1.8;letter-spacing:.3pt;background:var(--p);}
-.content{padding:0 20pt;}
+.footer{position:absolute;bottom:0;left:0;right:0;padding:20pt 50pt 24pt;border-top:1pt solid var(--bd);font-size:22pt;color:var(--st);line-height:1.8;letter-spacing:.3pt;background:var(--p);}
+.content{padding:0 60pt 0 40pt;}
 .dots{position:absolute;bottom:180pt;left:50%;transform:translateX(-50%);display:flex;gap:32pt;z-index:10;padding:12pt 28pt;background:rgba(255,255,255,.78);border-radius:32pt;backdrop-filter:blur(6pt);box-shadow:0 4pt 16pt rgba(0,0,0,.08);}
 .dot{width:48pt;height:48pt;border-radius:50%;background:var(--bd);transition:background .2s,transform .2s;cursor:pointer;border:0;}
 .dot:hover{background:#8a99ad;transform:scale(1.1);}
 .dot.active{background:var(--br);transform:scale(1.25);box-shadow:0 0 0 4pt rgba(27,54,93,.28);}
-.slide-label{position:absolute;top:130pt;right:30pt;font-size:22pt;color:var(--st);letter-spacing:1pt;z-index:10;}
-.dl-btn{position:absolute;top:130pt;right:140pt;z-index:20;background:rgba(255,255,255,.92);color:var(--br);border:1.5pt solid var(--br);border-radius:6pt;padding:6pt 14pt;font-size:20pt;font-weight:500;cursor:pointer;font-family:var(--serif);letter-spacing:.3pt;}
+.slide-label{position:absolute;top:130pt;right:50pt;font-size:22pt;color:var(--st);letter-spacing:1pt;z-index:10;}
+.dl-btn{position:absolute;top:130pt;right:160pt;z-index:20;background:rgba(255,255,255,.92);color:var(--br);border:1.5pt solid var(--br);border-radius:6pt;padding:6pt 14pt;font-size:20pt;font-weight:500;cursor:pointer;font-family:var(--serif);letter-spacing:.3pt;}
 .dl-btn:hover{background:var(--br);color:#fff;}
 .dl-btn:disabled{opacity:.4;cursor:wait;}
 /* === iPhone 设备边框（电脑端居中，手机端 JS 等比缩放）=== */
@@ -2226,8 +2226,6 @@ window.downloadCurrentSlide=async function(){
   var origCss=shell.style.cssText;
   var dotsEl=document.querySelector('.dots');
   var origDotsDisplay=dotsEl?dotsEl.style.display:'';
-  var labelEl=document.querySelector('.slide.active .slide-label');
-  var origLabelDisplay=labelEl?labelEl.style.display:'';
   var origBtnDisplay=btn.style.display;
   btn.disabled=true;btn.textContent='渲染中...';
   try{
@@ -2235,9 +2233,8 @@ window.downloadCurrentSlide=async function(){
     //    注意：origCss 只含 inline 样式（fitDevice 写入的 position/transform），
     //    不含外部 .device-shell CSS 规则——但恢复后 fitDevice 会重新设置，OK
     shell.style.cssText='position:absolute;top:0;left:0;margin:0;transform:none;width:'+IPHONE_W+'px;height:'+IPHONE_H+'px;';
-    // 2) 隐藏截图不需要的 UI：轮播 dots / 当前 slide 标签 / 下载按钮
+    // 2) 隐藏截图不需要的 UI：轮播 dots / 下载按钮（slide-label 保留，截图带上 1/6 序号）
     if(dotsEl) dotsEl.style.display='none';
-    if(labelEl) labelEl.style.display='none';
     btn.style.display='none';
     // 3) 字体兜底：document.fonts.ready 解决正常情况；font.check 单独探测关键 web font
     //    （如果 CDN 慢或断网，check 会 false 触发额外 sleep 给 web font 加载时间）
@@ -2253,7 +2250,6 @@ window.downloadCurrentSlide=async function(){
     });
     // 6) 恢复 shell（必须在 html2canvas 后立即恢复，否则 fitDevice 监听 resize 时看不到正确状态）
     shell.style.cssText=origCss;
-    if(labelEl) labelEl.style.display=origLabelDisplay;
     btn.style.display=origBtnDisplay;
     // 7) 触发下载（文件名加 _iphone 后缀，区分是否含设备边框）
     var idx=Array.prototype.indexOf.call(slide.parentNode.querySelectorAll('.slide'),slide)+1;
@@ -2290,6 +2286,15 @@ fitDevice();
 
 
 def _pct(v): return "—" if v is None else f"{v:.2f}%"
+
+
+def _wrap_name(name):
+    """股票名每 2 字换行：思维→思<br>维，中国神华→中国<br>神华"""
+    if not name:
+        return ""
+    # 每 2 个字符插入 <br>
+    parts = [name[i:i+2] for i in range(0, len(name), 2)]
+    return "<br>".join(parts)
 
 
 def _build_carousel_row_curr(r, bars_map):
@@ -2493,7 +2498,7 @@ def _render_carousel_html(top_curr, top_3y, top_curr_bars, total_stocks, today_s
       </div>
       <h2><span class="sub">分红比例 &amp; 行业 &amp; 扣非同比 &amp; 3年CAGR</span></h2>
       <table>
-        <thead><tr><th>#</th><th>股票</th><th class="num">实时</th><th class="num">分红</th><th>行业</th><th class="num">扣非同比</th><th class="num">3年CAGR</th></tr></thead>
+        <thead><tr><th>#</th><th>股票</th><th class="num">实时股息率</th><th class="num">分红比例</th><th>行业</th><th class="num">扣非同比</th><th class="num">3年CAGR</th></tr></thead>
         <tbody>{rows1}</tbody>
       </table>
     </div>
@@ -2558,7 +2563,7 @@ def _render_carousel_html(top_curr, top_3y, top_curr_bars, total_stocks, today_s
         </div>
         <div class="meta">{today_str}</div>
       </div>
-      <h2>近3年均值TOP10<span class="sub">分红比例 &amp; 行业 &amp; 扣非同比 &amp; 3年CAGR</span></h2>
+      <h2><span class="sub">分红比例 &amp; 行业 &amp; 扣非同比 &amp; 3年CAGR</span></h2>
       <table>
         <thead><tr><th>#</th><th>股票</th><th class="num">近3年均值</th><th class="num">分红</th><th>行业</th><th class="num">扣非同比</th><th class="num">3年CAGR</th></tr></thead>
         <tbody>{rows3}</tbody>
