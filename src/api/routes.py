@@ -736,10 +736,12 @@ async def get_financial_status():
             dates = fi_df["鏁版嵁鏃ユ湡"].dropna().unique()
             if len(dates) > 0:
                 data_date = sorted(dates)[-1]
-        # 鎵惧嚭缂哄け鏁版嵁鐨勮偂绁?n        existing_codes = fi_df["鑲＄エ浠ｇ爜"].astype(str).str.zfill(6).tolist()
+        # 鎵惧嚭缂哄け鏁版嵁鐨勮偂绁
+        existing_codes = fi_df["鑲＄エ浠ｇ爜"].astype(str).str.zfill(6).tolist()
         missing_codes = [c for c in filtered_codes if c not in existing_codes]
     else:
-        # 鏂囦欢涓嶅瓨鍦?鎵€鏈夌瓫閫夊悗鑲＄エ閮界畻缂哄け锛屽敜鍙戝埛鏂版寜閱?n        missing_codes = filtered_codes
+        # 鏂囦欢涓嶅瓨鍦?鎵€鏈夌瓫閫夊悗鑲＄エ閮界畻缂哄け锛屽敜鍙戝埛鏂版寜閱
+        missing_codes = filtered_codes
 
     return {
         "exists": file_exists,
