@@ -1,0 +1,23 @@
+﻿# 构建产物
+*.html
+*.jpeg
+*.jpg
+
+# 临时文件
+*.pyc
+__pycache__/
+*.log
+
+# 数据文件（运行时由容器内生成或挂载 volume）
+data/
+logs/
+
+# IDE
+.vscode/
+.idea/
+
+# Python 虚拟环境
+.venv/
+venv/
+.env
+.env.local
