@@ -683,6 +683,17 @@ class DividendCalculator:
             logger.warning(f"{stock.code} {stock.name}: 无分红数据，跳过")
             return None
 
+        # 检查 2023/2024/2025 年是否每年都有分红记录，缺一年则跳过
+        required_years = [2023, 2024, 2025]
+        missing_years = []
+        for year in required_years:
+            _, count = self.get_yearly_dividend(dividend_df, year)
+            if count == 0:
+                missing_years.append(year)
+        if missing_years:
+            logger.warning(f"{stock.code} {stock.name}: 缺少 {missing_years} 年分红数据，跳过")
+            return None
+
         result = StockResult(
             code=stock.code,
             name=stock.name,
