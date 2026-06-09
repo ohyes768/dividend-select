@@ -727,20 +727,20 @@ async def get_financial_status():
     # 提前计算 filtered_codes（file_exists 真假都需要用到）
     df = data_reader.read_csv()
     df = filter_service.filter_by_3y_dividend(df, min_avg_yield=3.0)
-    filtered_codes = df["鑲＄エ浠ｇ爜"].astype(str).str.zfill(6).tolist()
+    filtered_codes = df["股票代码"].astype(str).str.zfill(6).tolist()
 
     if file_exists:
         fi_df = financial_reader.read_csv()
         if not fi_df.empty:
-            # 鑾峰彇鏁版嵁鏃ユ湡
-            dates = fi_df["鏁版嵁鏃ユ湡"].dropna().unique()
+            # 鑾峰彇数据日期
+            dates = fi_df["数据日期"].dropna().unique()
             if len(dates) > 0:
                 data_date = sorted(dates)[-1]
         # 鎵惧嚭缂哄け鏁版嵁鐨勮偂绁
-        existing_codes = fi_df["鑲＄エ浠ｇ爜"].astype(str).str.zfill(6).tolist()
+        existing_codes = fi_df["股票代码"].astype(str).str.zfill(6).tolist()
         missing_codes = [c for c in filtered_codes if c not in existing_codes]
     else:
-        # 鏂囦欢涓嶅瓨鍦?鎵€鏈夌瓫閫夊悗鑲＄エ閮界畻缂哄け锛屽敜鍙戝埛鏂版寜閱
+        # 数据日期?鎵€鏈夌瓫閫夊悗鑲＄エ閮界畻缂哄け锛屽敜鍙戝埛鏂版寜閱
         missing_codes = filtered_codes
 
     return {
