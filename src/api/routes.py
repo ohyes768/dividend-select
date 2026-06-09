@@ -1,4 +1,4 @@
-﻿"""
+"""
 API 路由定义
 """
 from datetime import datetime
