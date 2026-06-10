@@ -167,7 +167,11 @@ class FinancialFetcher:
 
     def _calc_latest_eps(self, df: pd.DataFrame) -> dict:
         """
-        计算最近一期年报的摊薄每股收益（EPS）
+        计算最近一期年报的基本每股收益（EPS）
+
+        取 akshare 的"加权每股收益(元)"，与"摊薄每股收益(元)"的差异：
+        摊薄EPS 在年内大额回购注销场景下会显著偏高（分母被注销后股本拉低），
+        与"每股分红"的口径不一致，导致分红比例计算失真（如华特达因 2024 年）。
 
         Args:
             df: 财务指标 DataFrame
@@ -188,7 +192,7 @@ class FinancialFetcher:
         year = int(eps_date[:4]) if len(eps_date) >= 4 else None
         return {
             "最新EPS年度": year,
-            "最新EPS(元)": self._safe_float(latest.get("摊薄每股收益(元)")),
+            "最新EPS(元)": self._safe_float(latest.get("加权每股收益(元)")),
         }
 
     def _calc_growth_metrics(self, df: pd.DataFrame) -> dict:
