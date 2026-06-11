@@ -10,8 +10,6 @@ import pandas as pd
 from ..utils.helpers import (
     DATA_DIR,
     setup_logger,
-    save_csv_data,
-    get_current_date_dir,
 )
 
 logger = setup_logger(__name__)
@@ -20,14 +18,7 @@ logger = setup_logger(__name__)
 class FinancialFetcher:
     """财务指标获取器"""
 
-    def __init__(self, date_str: Optional[str] = None):
-        """
-        初始化
-
-        Args:
-            date_str: 日期字符串（YYYY-MM格式），None则使用当前日期
-        """
-        self.date_str = date_str if date_str else get_current_date_dir()
+    def __init__(self):
         self.output_file = "财务指标汇总.csv"
 
     def fetch_one(self, code: str, start_year: Optional[str] = None) -> Optional[dict]:
@@ -74,6 +65,10 @@ class FinancialFetcher:
             # 计算最近一期年报的 EPS（摊薄每股收益），用于后续计算分红比例
             eps_metrics = self._calc_latest_eps(df)
             result.update(eps_metrics)
+
+            # 添加数据季度
+            from ..api.helpers.aux_data import current_quarter
+            result["数据季度"] = current_quarter()
 
             return result
 
@@ -134,7 +129,7 @@ class FinancialFetcher:
 
     def fetch_and_save(self, codes: list[str], delay: float = 0.5) -> bool:
         """
-        获取财务指标并保存到CSV
+        获取财务指标并保存到CSV（根目录固定路径）
 
         Args:
             codes: 股票代码列表
@@ -148,8 +143,11 @@ class FinancialFetcher:
             return False
 
         try:
-            save_csv_data(df, self.output_file, self.date_str)
-            logger.info(f"财务指标数据已保存到 {self.date_str}/{self.output_file}")
+            from ..api.helpers.aux_data import aux_file_path
+            output_path = aux_file_path("财务指标汇总")
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            df.to_csv(output_path, index=False, encoding="utf-8-sig")
+            logger.info(f"财务指标数据已保存到 {output_path}，共 {len(df)} 条")
             return True
         except Exception as e:
             logger.error(f"保存财务指标数据失败: {e}")

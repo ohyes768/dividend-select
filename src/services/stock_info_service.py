@@ -7,12 +7,10 @@ from typing import Optional
 
 import pandas as pd
 
+from src.api.helpers.aux_data import find_latest_aux_file
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
-
-# 申万行业映射文件固定在 data 目录
-SW_MAPPING_FILE = Path(__file__).parent.parent.parent / "data" / "个股申万行业映射.csv"
 
 
 class StockInfoService:
@@ -30,19 +28,21 @@ class StockInfoService:
         self._sw_df: Optional[pd.DataFrame] = None
 
     def _load_sw_mapping(self) -> bool:
-        """加载申万行业映射数据"""
+        """加载申万行业映射数据（每次调用动态 glob 最新季度后缀文件）"""
         if self._sw_df is not None:
             return True
 
-        if not SW_MAPPING_FILE.exists():
-            logger.warning(f"申万行业映射文件不存在: {SW_MAPPING_FILE}")
+        # 每次重新 glob，避免 refresh 后仍读旧文件
+        sw_mapping_file = find_latest_aux_file("个股申万行业映射")
+        if sw_mapping_file is None or not sw_mapping_file.exists():
+            logger.warning(f"申万行业映射文件不存在")
             return False
 
         try:
-            self._sw_df = pd.read_csv(SW_MAPPING_FILE, encoding="utf-8-sig")
+            self._sw_df = pd.read_csv(sw_mapping_file, encoding="utf-8-sig")
             # 处理股票代码格式 (001220.SZ -> 001220)
             self._sw_df["股票代码"] = self._sw_df["股票代码"].str.replace(r"\.(SZ|SH)$", "", regex=True)
-            logger.info(f"申万行业映射加载成功: {len(self._sw_df)} 条")
+            logger.info(f"申万行业映射加载成功: {len(self._sw_df)} 条 from {sw_mapping_file.name}")
             return True
         except Exception as e:
             logger.error(f"加载申万行业映射失败: {e}")

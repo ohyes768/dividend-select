@@ -10,8 +10,6 @@ import pandas as pd
 from ..utils.helpers import (
     DATA_DIR,
     setup_logger,
-    save_csv_data,
-    get_current_date_dir,
 )
 
 logger = setup_logger(__name__)
@@ -20,14 +18,7 @@ logger = setup_logger(__name__)
 class ShareholderFetcher:
     """股东户数获取器"""
 
-    def __init__(self, date_str: Optional[str] = None):
-        """
-        初始化
-
-        Args:
-            date_str: 日期字符串（YYYY-MM格式），None则使用当前日期
-        """
-        self.date_str = date_str if date_str else get_current_date_dir()
+    def __init__(self):
         self.output_file = "股东户数汇总.csv"
 
     def fetch_all(self, date: Optional[str] = None) -> pd.DataFrame:
@@ -83,7 +74,7 @@ class ShareholderFetcher:
 
     def fetch_and_save(self, date: Optional[str] = None) -> bool:
         """
-        获取股东户数并保存到CSV
+        获取股东户数并保存到CSV（根目录固定路径）
 
         Args:
             date: 季度末日期
@@ -96,8 +87,12 @@ class ShareholderFetcher:
             return False
 
         try:
-            save_csv_data(df, self.output_file, self.date_str)
-            logger.info(f"股东户数数据已保存到 {self.date_str}/{self.output_file}")
+            from ..api.helpers.aux_data import aux_file_path, current_quarter
+            df["数据季度"] = current_quarter()
+            output_path = aux_file_path("股东户数汇总")
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            df.to_csv(output_path, index=False, encoding="utf-8-sig")
+            logger.info(f"股东户数数据已保存到 {output_path}，共 {len(df)} 条")
             return True
         except Exception as e:
             logger.error(f"保存股东户数数据失败: {e}")

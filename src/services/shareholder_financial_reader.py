@@ -6,7 +6,8 @@ from typing import Optional
 
 import pandas as pd
 
-from ..utils.helpers import DATA_DIR, setup_logger, get_current_date_dir
+from ..api.helpers.aux_data import find_latest_aux_file
+from ..utils.helpers import DATA_DIR, setup_logger
 
 logger = setup_logger(__name__)
 
@@ -16,24 +17,23 @@ class ShareholderReader:
     股东户数数据读取服务
     """
 
-    def __init__(self, date_str: Optional[str] = None):
-        self.date_str = date_str if date_str else get_current_date_dir()
+    def __init__(self):
         self._cache: pd.DataFrame | None = None
 
-    def _get_file_path(self) -> Path:
-        """获取文件路径"""
-        filename = f"股东户数汇总_{self.date_str}.csv"
-        return DATA_DIR / self.date_str / filename
+    def _get_file_path(self) -> Optional[Path]:
+        """获取文件路径（按 mtime 取最新季度后缀文件，无文件返回 None）"""
+        return find_latest_aux_file("股东户数汇总")
 
     def check_exists(self) -> bool:
         """检查文件是否存在"""
-        return self._get_file_path().exists()
+        path = self._get_file_path()
+        return path is not None and path.exists()
 
     def read_csv(self) -> pd.DataFrame:
         """读取股东户数数据"""
         filepath = self._get_file_path()
-        if not filepath.exists():
-            logger.warning(f"股东户数文件不存在: {filepath}")
+        if filepath is None or not filepath.exists():
+            logger.warning(f"股东户数文件不存在")
             return pd.DataFrame()
 
         try:
@@ -43,6 +43,16 @@ class ShareholderReader:
         except Exception as e:
             logger.error(f"读取股东户数数据失败: {e}")
             return pd.DataFrame()
+
+    def get_quarter(self) -> Optional[str]:
+        """获取数据季度"""
+        df = self.read_csv()
+        if df.empty or "数据季度" not in df.columns:
+            return None
+        quarters = df["数据季度"].dropna().unique()
+        if len(quarters) > 0:
+            return str(sorted(quarters)[-1])
+        return None
 
     def get_stock_data(self, code: str) -> Optional[dict]:
         """获取单只股票的股东户数数据"""
@@ -68,24 +78,23 @@ class FinancialReader:
     财务指标数据读取服务
     """
 
-    def __init__(self, date_str: Optional[str] = None):
-        self.date_str = date_str if date_str else get_current_date_dir()
+    def __init__(self):
         self._cache: pd.DataFrame | None = None
 
-    def _get_file_path(self) -> Path:
-        """获取文件路径"""
-        filename = f"财务指标汇总_{self.date_str}.csv"
-        return DATA_DIR / self.date_str / filename
+    def _get_file_path(self) -> Optional[Path]:
+        """获取文件路径（按 mtime 取最新季度后缀文件，无文件返回 None）"""
+        return find_latest_aux_file("财务指标汇总")
 
     def check_exists(self) -> bool:
         """检查文件是否存在"""
-        return self._get_file_path().exists()
+        path = self._get_file_path()
+        return path is not None and path.exists()
 
     def read_csv(self) -> pd.DataFrame:
         """读取财务指标数据"""
         filepath = self._get_file_path()
-        if not filepath.exists():
-            logger.warning(f"财务指标文件不存在: {filepath}")
+        if filepath is None or not filepath.exists():
+            logger.warning(f"财务指标文件不存在")
             return pd.DataFrame()
 
         try:
@@ -95,6 +104,16 @@ class FinancialReader:
         except Exception as e:
             logger.error(f"读取财务指标数据失败: {e}")
             return pd.DataFrame()
+
+    def get_quarter(self) -> Optional[str]:
+        """获取数据季度"""
+        df = self.read_csv()
+        if df.empty or "数据季度" not in df.columns:
+            return None
+        quarters = df["数据季度"].dropna().unique()
+        if len(quarters) > 0:
+            return str(sorted(quarters)[-1])
+        return None
 
     def get_stock_data(self, code: str) -> Optional[dict]:
         """获取单只股票的财务指标数据"""

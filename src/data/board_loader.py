@@ -1,11 +1,13 @@
 """
 板块信息加载器 - 从本地CSV文件加载板块和行业信息
 """
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 
-from ..utils.helpers import DATA_DIR, setup_logger, get_current_date_dir, get_date_path, get_filename_with_date_suffix
+from ..api.helpers.aux_data import find_latest_aux_file
+from ..utils.helpers import setup_logger
 from .models import BoardInfo
 
 logger = setup_logger(__name__)
@@ -19,47 +21,51 @@ class BoardInfoLoader:
         初始化
 
         Args:
-            date_str: 日期字符串（YYYY-MM格式），None则使用当前日期
+            date_str: 已废弃参数（保留签名兼容），不再影响文件路径
         """
-        self.date_str = date_str if date_str else get_current_date_dir()
-        self.board_mapping_file = get_date_path("个股板块映射.csv", self.date_str)
-        # 申万行业映射文件固定在 data 目录，不带日期后缀
-        self.sw_mapping_file = DATA_DIR / "个股申万行业映射.csv"
+        # 板块和申万行业都改为季度后缀文件：data/{prefix}_YYYYQn.csv
+        # 具体路径在 _load_* 中动态 glob 取最新
+        self.board_mapping_file: Optional[Path] = None
+        self.sw_mapping_file: Optional[Path] = None
 
         self._board_df: Optional[pd.DataFrame] = None
         self._sw_df: Optional[pd.DataFrame] = None
 
     def _load_board_mapping(self) -> bool:
-        """加载板块映射数据"""
+        """加载板块映射数据（每次调用动态 glob 最新季度后缀文件）"""
         if self._board_df is not None:
             return True
 
-        if not self.board_mapping_file.exists():
-            logger.warning(f"板块映射文件不存在: {self.board_mapping_file}")
+        # 每次都重新 glob，避免 refresh 后仍读旧文件
+        self.board_mapping_file = find_latest_aux_file("个股板块映射")
+        if self.board_mapping_file is None or not self.board_mapping_file.exists():
+            logger.warning("个股板块映射文件不存在")
             return False
 
         try:
             self._board_df = pd.read_csv(self.board_mapping_file, encoding="utf-8-sig")
-            logger.info(f"板块映射加载成功: {len(self._board_df)} 条")
+            logger.info(f"板块映射加载成功: {len(self._board_df)} 条 from {self.board_mapping_file.name}")
             return True
         except Exception as e:
             logger.error(f"加载板块映射失败: {e}")
             return False
 
     def _load_sw_mapping(self) -> bool:
-        """加载申万行业映射数据"""
+        """加载申万行业映射数据（每次调用动态 glob 最新季度后缀文件）"""
         if self._sw_df is not None:
             return True
 
-        if not self.sw_mapping_file.exists():
-            logger.warning(f"申万行业映射文件不存在: {self.sw_mapping_file}")
+        # 每次都重新 glob，避免 refresh 后仍读旧文件
+        self.sw_mapping_file = find_latest_aux_file("个股申万行业映射")
+        if self.sw_mapping_file is None or not self.sw_mapping_file.exists():
+            logger.warning(f"申万行业映射文件不存在")
             return False
 
         try:
             self._sw_df = pd.read_csv(self.sw_mapping_file, encoding="utf-8-sig")
             # 处理股票代码格式 (001220.SZ -> 001220)
             self._sw_df["股票代码"] = self._sw_df["股票代码"].str.replace(r"\.(SZ|SH)$", "", regex=True)
-            logger.info(f"申万行业映射加载成功: {len(self._sw_df)} 条")
+            logger.info(f"申万行业映射加载成功: {len(self._sw_df)} 条 from {self.sw_mapping_file.name}")
             return True
         except Exception as e:
             logger.error(f"加载申万行业映射失败: {e}")

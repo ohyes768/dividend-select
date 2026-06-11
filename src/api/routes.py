@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 
 from src.api.models import (
     BoardInfo,
@@ -42,6 +42,14 @@ from src.services.shareholder_financial_reader import ShareholderReader, Financi
 from src.services import weekly_comparison
 from src.data.financial_fetcher import FinancialFetcher
 from src.utils.helpers import save_csv_data, DATA_DIR
+from src.api.helpers.aux_data import (
+    REFRESH_INTERVAL_DAYS,
+    aux_file_path,
+    current_quarter,
+    days_since_update,
+    file_mtime_iso,
+    find_latest_aux_file,
+)
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -705,6 +713,66 @@ def get_financial_fetcher() -> FinancialFetcher:
     return _financial_fetcher
 
 
+@router.get("/sw-industry/status")
+async def get_sw_industry_status():
+    """
+    获取申万行业数据状态
+
+    返回：
+    - exists: 文件是否存在
+    - last_updated: 上次更新时间
+    - days_since_update: 距上次更新天数
+    - quarter: 数据季度
+    - needs_update: 是否需要更新（文件不存在或超过90天）
+    """
+    path = find_latest_aux_file("个股申万行业映射")
+    days = days_since_update(path) if path else None
+    return {
+        "exists": path is not None,
+        "last_updated": file_mtime_iso(path) if path else None,
+        "days_since_update": days,
+        "quarter": current_quarter(),
+        "needs_update": (days is None) or (days > REFRESH_INTERVAL_DAYS),
+    }
+
+
+@router.post("/sw-industry/refresh")
+async def refresh_sw_industry(force: bool = Query(False)):
+    """
+    刷新申万行业数据（通过问财 API）
+
+    需要 PYWENCAI_COOKIE 环境变量
+
+    查询参数：
+    - force: 是否强制刷新（忽略90天节流）
+    """
+    path = find_latest_aux_file("个股申万行业映射")
+    days = days_since_update(path) if path else None
+
+    if not force and days is not None and days < REFRESH_INTERVAL_DAYS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"距上次更新仅 {days} 天，<{REFRESH_INTERVAL_DAYS}天，禁止刷新（force=true 强制）"
+        )
+
+    try:
+        from src.data.sw_industry_fetcher import SwIndustryFetcher
+        df = SwIndustryFetcher().fetch_all()
+        if df.empty:
+            raise HTTPException(status_code=502, detail="akshare 返回空数据")
+        return {
+            "success": True,
+            "count": len(df),
+            "quarter": current_quarter(),
+            "message": f"申万行业刷新完成，共 {len(df)} 条"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"刷新申万行业失败: {e}")
+        raise HTTPException(status_code=500, detail=f"刷新失败: {str(e)}")
+
+
 @router.get("/financial/status")
 async def get_financial_status():
     """
@@ -714,13 +782,19 @@ async def get_financial_status():
     - exists: 文件是否存在
     - last_updated: 上次更新时间
     - data_date: 数据日期（季度）
+    - days_since_update: 距上次更新天数
+    - quarter: 数据季度
+    - needs_update: 是否需要更新
     - missing_codes: 缺失数据的股票代码列表
     """
     if financial_reader is None:
         raise HTTPException(status_code=500, detail="服务未初始化")
 
+    fi_path = find_latest_aux_file("财务指标汇总")
     file_exists = financial_reader.check_exists()
-    last_updated = None
+    last_updated = file_mtime_iso(fi_path) if fi_path else None
+    days = days_since_update(fi_path) if fi_path else None
+    quarter = financial_reader.get_quarter() or current_quarter()
     data_date = None
     missing_codes: list[str] = []
 
@@ -732,33 +806,39 @@ async def get_financial_status():
     if file_exists:
         fi_df = financial_reader.read_csv()
         if not fi_df.empty:
-            # 获取数据日期
             dates = fi_df["数据日期"].dropna().unique()
             if len(dates) > 0:
                 data_date = sorted(dates)[-1]
-        # 找出缺失数据的股票
         existing_codes = fi_df["股票代码"].astype(str).str.zfill(6).tolist()
         missing_codes = [c for c in filtered_codes if c not in existing_codes]
     else:
-        # 文件不存在，所有筛选后股票都算缺失，触发刷新按钮
         missing_codes = filtered_codes
 
     return {
         "exists": file_exists,
         "last_updated": last_updated,
         "data_date": data_date,
+        "days_since_update": days,
+        "quarter": quarter,
+        "needs_update": (days is None) or (days > REFRESH_INTERVAL_DAYS),
         "missing_count": len(missing_codes),
-        "missing_codes": missing_codes,  # 返回全部缺失代码
+        "missing_codes": missing_codes,
     }
 
 
 @router.post("/financial/refresh")
-async def refresh_financial_data(body: Optional[CodesRequest] = None):
+async def refresh_financial_data(
+    body: Optional[CodesRequest] = None,
+    force: bool = Query(False),
+):
     """
     刷新财务指标数据
 
-    只更新根据股息率筛选出来的股票（3年平均股息率 >= 4%）。
+    只更新根据股息率筛选出来的股票（3年平均股息率 >= 3%）。
     如果某只股票当季度数据还没有，则跳过（返回时会标记为缺失）。
+
+    查询参数：
+    - force: 是否强制刷新（忽略90天节流）
 
     请求参数：
     - codes: 股票代码列表（可选，如果不传则刷新所有缺失的股票）
@@ -773,6 +853,14 @@ async def refresh_financial_data(body: Optional[CodesRequest] = None):
 
     if data_reader is None or financial_reader is None:
         raise HTTPException(status_code=500, detail="服务未初始化")
+
+    fi_path = find_latest_aux_file("财务指标汇总")
+    days = days_since_update(fi_path) if fi_path else None
+    if not force and days is not None and days < REFRESH_INTERVAL_DAYS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"距上次更新仅 {days} 天，<{REFRESH_INTERVAL_DAYS}天，禁止刷新（force=true 强制）"
+        )
 
     try:
         # 如果请求中指定了 codes，只更新指定的股票；否则更新所有缺失的股票
@@ -799,6 +887,9 @@ async def refresh_financial_data(body: Optional[CodesRequest] = None):
         fetcher = get_financial_fetcher()
         _financial_fetcher = fetcher
 
+        # 写入路径：当前季度后缀文件（同季度刷新幂等，跨季度自动新建）
+        write_path = aux_file_path("财务指标汇总")
+
         # 追加模式保存：读取已存在数据，追加新数据
         existing_df = pd.DataFrame()
         if financial_reader.check_exists():
@@ -806,17 +897,16 @@ async def refresh_financial_data(body: Optional[CodesRequest] = None):
 
         def on_batch(df_batch: pd.DataFrame):
             nonlocal existing_df
-            # 追加新数据
             existing_df = pd.concat([existing_df, df_batch], ignore_index=True)
-            # 保存到 CSV（覆盖模式）
-            save_csv_data(existing_df, fetcher.output_file, fetcher.date_str)
+            write_path.parent.mkdir(parents=True, exist_ok=True)
+            existing_df.to_csv(write_path, index=False, encoding="utf-8-sig")
             logger.info(f"已保存 {len(existing_df)} 条财务指标数据")
 
         results_df = fetcher.fetch_batch(codes, delay=0.3, show_progress=True, batch_size=10, on_batch=on_batch)
 
         # 最终保存
         if not results_df.empty:
-            logger.info(f"财务指标数据已保存到 {fetcher.date_str}/{fetcher.output_file}")
+            logger.info(f"财务指标数据已保存到 {write_path}")
 
         # 检查当季度是否有数据（数据日期不是最新季度则为缺失）
         current_quarter_date = f"{datetime.now().year}-03-31" if datetime.now().month <= 4 else \
@@ -845,30 +935,74 @@ async def refresh_financial_data(body: Optional[CodesRequest] = None):
 
 @router.get("/shareholder/status")
 async def get_shareholder_status():
-    """获取股东户数数据状态"""
+    """
+    获取股东户数数据状态
+
+    返回：
+    - exists: 文件是否存在
+    - last_updated: 上次更新时间
+    - days_since_update: 距上次更新天数
+    - quarter: 数据季度
+    - needs_update: 是否需要更新（文件不存在或超过90天）
+    - record_count: 记录数量
+    """
     if shareholder_reader is None:
         raise HTTPException(status_code=500, detail="服务未初始化")
 
+    sh_path = find_latest_aux_file("股东户数汇总")
+    days = days_since_update(sh_path) if sh_path else None
     file_exists = shareholder_reader.check_exists()
-    last_updated = None
     record_count = 0
 
     if file_exists:
         sh_df = shareholder_reader.read_csv()
         if not sh_df.empty:
             record_count = len(sh_df)
-            # 获取文件修改时间
-            from src.utils.helpers import DATA_DIR, get_current_date_dir
-            date_str = get_current_date_dir()
-            filepath = DATA_DIR / date_str / f"股东户数汇总_{date_str}.csv"
-            if filepath.exists():
-                last_updated = datetime.fromtimestamp(filepath.stat().st_mtime).isoformat()
 
     return {
         "exists": file_exists,
-        "last_updated": last_updated,
+        "last_updated": file_mtime_iso(sh_path) if sh_path else None,
+        "days_since_update": days,
+        "quarter": shareholder_reader.get_quarter() or current_quarter(),
+        "needs_update": (days is None) or (days > REFRESH_INTERVAL_DAYS),
         "record_count": record_count,
     }
+
+
+@router.post("/shareholder/refresh")
+async def refresh_shareholder_data(force: bool = Query(False)):
+    """
+    刷新股东户数数据
+
+    查询参数：
+    - force: 是否强制刷新（忽略90天节流）
+    """
+    sh_path = find_latest_aux_file("股东户数汇总")
+    days = days_since_update(sh_path) if sh_path else None
+
+    if not force and days is not None and days < REFRESH_INTERVAL_DAYS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"距上次更新仅 {days} 天，<{REFRESH_INTERVAL_DAYS}天，禁止刷新（force=true 强制）"
+        )
+
+    try:
+        from src.data.shareholder_fetcher import ShareholderFetcher
+        fetcher = ShareholderFetcher()
+        success = fetcher.fetch_and_save()
+        if not success:
+            raise HTTPException(status_code=502, detail="股东户数数据获取失败")
+        return {
+            "success": True,
+            "count": record_count if (record_count := len(shareholder_reader.read_csv())) > 0 else 0,
+            "quarter": current_quarter(),
+            "message": "股东户数刷新完成"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"刷新股东户数失败: {e}")
+        raise HTTPException(status_code=500, detail=f"刷新失败: {str(e)}")
 
 
 # ========== PE 相关接口 ==========
@@ -1125,6 +1259,60 @@ async def get_stocks_info(request: StockInfoRequest):
 # ========== 板块映射刷新接口 ==========
 
 
+@router.get("/board/status")
+async def get_board_status():
+    """
+    获取个股板块映射数据状态
+
+    返回：
+    - exists: 文件是否存在
+    - last_updated: 上次更新时间
+    - days_since_update: 距上次更新天数
+    - quarter: 数据季度
+    - needs_update: 是否需要更新（文件不存在或超过90天）
+    - record_count: 现有板块映射记录数
+    - missing_count: 持仓股票中未映射板块的股票数
+    - missing_codes: 持仓股票中未映射板块的股票代码列表
+    """
+    path = find_latest_aux_file("个股板块映射")
+    days = days_since_update(path) if path else None
+
+    record_count = 0
+    missing_codes: list[str] = []
+    existing_codes: set[str] = set()
+
+    # 读取现有板块映射文件
+    if path is not None and path.exists():
+        try:
+            existing_df = pd.read_csv(path, encoding="utf-8-sig")
+            existing_df["股票代码"] = existing_df["股票代码"].astype(str).str.zfill(6)
+            existing_codes = set(existing_df["股票代码"].tolist())
+            record_count = len(existing_df)
+        except Exception as e:
+            logger.warning(f"读取板块映射文件失败: {e}")
+
+    # 计算缺失：持仓股票 - 已有映射
+    if data_reader is not None:
+        try:
+            holdings_df = data_reader.read_csv()
+            if not holdings_df.empty and "股票代码" in holdings_df.columns:
+                holdings_codes = set(holdings_df["股票代码"].astype(str).str.zfill(6).tolist())
+                missing_codes = sorted(holdings_codes - existing_codes)
+        except Exception as e:
+            logger.warning(f"读取红利指数持仓数据失败: {e}")
+
+    return {
+        "exists": path is not None,
+        "last_updated": file_mtime_iso(path) if path else None,
+        "days_since_update": days,
+        "quarter": current_quarter(),
+        "needs_update": (days is None) or (days > REFRESH_INTERVAL_DAYS),
+        "record_count": record_count,
+        "missing_count": len(missing_codes),
+        "missing_codes": missing_codes,
+    }
+
+
 @router.get("/board", response_model=BoardInfoResponse)
 async def get_board_info(
     code: Optional[str] = Query(None, description="股票代码（查询单只股票）"),
@@ -1149,12 +1337,10 @@ async def get_board_info(
     if code and codes:
         raise HTTPException(status_code=400, detail="不能同时使用 code 和 codes 参数")
 
-    # 获取板块映射文件（使用当前月份目录）
-    from src.utils.helpers import get_current_date_dir
-    date_str = get_current_date_dir()
-    board_file = DATA_DIR / date_str / "个股板块映射.csv"
+    # 板块映射文件按季度后缀 glob 取最新
+    board_file = find_latest_aux_file("个股板块映射")
 
-    if not board_file.exists():
+    if board_file is None or not board_file.exists():
         raise HTTPException(status_code=404, detail="板块数据文件不存在，请先调用 /board/refresh")
 
     try:
@@ -1216,16 +1402,26 @@ _is_refreshing_board: bool = False
 
 
 @router.post("/board/refresh")
-async def refresh_board_mapping():
+async def refresh_board_mapping(
+    body: Optional[CodesRequest] = Body(None),
+    force: bool = Query(False),
+):
     """
     刷新个股板块映射数据
 
-    该接口用于获取所有红利指数持仓股票的概念板块和行业板块信息，并保存到CSV文件。
-    适用于 n8n 定时任务调用，建议每周或每月更新一次。
+    不传 body：全量刷新所有红利指数持仓股票（219 只，约3-5 分钟）。
+    传 body.codes：仅刷新指定股票，追加到现有 CSV（约 delay×N 秒）。
+
+    查询参数：
+    - force: 是否强制刷新（忽略90天节流）
+
+    请求参数（可选）：
+    - codes: 股票代码列表（增量补缺时传 status 返回的 missing_codes）
 
     返回：
     - success: 是否成功
     - message: 处理结果信息
+    - mode: "full" 或 "incremental"
     - stats: 统计信息
       - total_stocks: 总股票数
       - success_count: 成功获取数
@@ -1235,10 +1431,21 @@ async def refresh_board_mapping():
       - end_time: 结束时间
 
     注意：
-    - 该接口耗时较长（约3-5分钟，取决于股票数量）
+    - 全量刷新耗时较长（约3-5分钟，取决于股票数量）
     - 如果刷新正在进行中，将返回 409 Conflict 错误
     """
     global _is_refreshing_board
+
+    # 90 天节流（与其它辅助数据共用）
+    # 注意：仅全量模式强制节流，增量模式不阻断（用户主动补缺）
+    if body is None or not body.codes:
+        path = find_latest_aux_file("个股板块映射")
+        days = days_since_update(path) if path else None
+        if not force and days is not None and days < REFRESH_INTERVAL_DAYS:
+            raise HTTPException(
+                status_code=429,
+                detail=f"距上次更新仅 {days} 天，<{REFRESH_INTERVAL_DAYS}天，禁止刷新（force=true 强制）"
+            )
 
     # 并发控制
     if _is_refreshing_board:
@@ -1253,34 +1460,38 @@ async def refresh_board_mapping():
     try:
         # 设置并发标志
         _is_refreshing_board = True
-        logger.info("开始刷新板块映射数据")
 
-        # 导入必要的模块
+        # 创建板块映射获取器（不再传 date_str；输出走季度后缀文件）
         from src.data import BoardMappingFetcher
-        from src.utils import get_current_date_dir
+        fetcher = BoardMappingFetcher()
 
-        # 获取当前日期目录
-        date_str = get_current_date_dir()
-        output_file = "个股板块映射.csv"
-
-        # 创建板块映射获取器
-        fetcher = BoardMappingFetcher(date_str=date_str)
-
-        # 更新板块映射
-        success = fetcher.update(show_progress=True, date_str=date_str)
+        if body is not None and body.codes:
+            # 增量模式：仅刷新指定股票
+            codes = [str(c).zfill(6) for c in body.codes]
+            logger.info(f"开始按 codes 增量刷新板块映射，共 {len(codes)} 只")
+            success = fetcher.update_by_codes(codes, show_progress=True)
+            mode = "incremental"
+            message = f"板块映射增量刷新完成（{len(codes)} 只）"
+        else:
+            # 全量模式：刷新所有持仓股票
+            logger.info("开始全量刷新板块映射数据")
+            success = fetcher.update(show_progress=True)
+            mode = "full"
+            message = "板块映射全量刷新完成"
 
         end_time = datetime.now()
 
         if success:
-            logger.info(f"板块映射刷新完成")
+            logger.info(f"板块映射刷新完成（{mode}）")
             return {
                 "success": True,
-                "message": "板块映射刷新完成",
+                "message": message,
+                "mode": mode,
                 "stats": {
                     "total_stocks": len(fetcher.stock_names),
                     "success_count": len(fetcher.stock_names) - len(fetcher.failed_stocks),
                     "failed_count": len(fetcher.failed_stocks),
-                    "file_path": f"data/{date_str}/{output_file}",
+                    "file_path": str(fetcher.output_file),
                     "start_time": start_time.isoformat(),
                     "end_time": end_time.isoformat(),
                 }
