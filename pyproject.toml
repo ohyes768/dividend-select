@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2.5.0",
     "pandas>=2.0.0",
     "requests>=2.31.0",  # 直接调东财 emweb 接口获取板块信息（替代 efinance）
+    "pywencai>=0.13.1",  # 申万行业数据源（问财 API），sw_industry_fetcher.py 使用
     # 环境变量加载
     "python-dotenv>=1.0.0",
 ]
