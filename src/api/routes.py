@@ -517,7 +517,7 @@ async def get_stats():
 
 @router.get("/m120", response_model=M120ListResponse)
 async def get_m120_stocks(
-    min_yield: float = Query(5.0, description="最小股息率(%)，默认5%，传0则不过滤"),
+    min_yield: float = Query(0, description="最小股息率(%)，前端传入控制；0则不过滤返回全部"),
     sort_by: str = Query("avg_yield_3y", description="排序字段"),
     sort_order: str = Query("desc", description="排序方向(asc/desc)")
 ):
@@ -1562,67 +1562,68 @@ async def get_dividend_status():
     from datetime import datetime
     from src.utils.helpers import DATA_DIR, get_current_date_dir
 
-    # 股息率数据文件路径
     date_str = get_current_date_dir()  # YYYY-MM格式
     dividend_file = DATA_DIR / date_str / f"近3年股息率汇总_{date_str}.csv"
-    dividend_count_file = DATA_DIR / date_str / f"股票分红次数汇总_{date_str}.csv"
 
+    # yield CSV 状态（公共字段，与 prefilter 无关）
     file_exists = dividend_file.exists()
     last_updated = None
-    needs_update = True
-    pending_count = 0
     completed_count = 0
-    failed_codes: list[str] = []
-
-    # 优先读 prefilter csv 算 target_count（与 refresh 实际口径对齐）
-    # refresh 入口写盘 data/{date_str}/prefilter_stock_list_{date_str}.csv
-    prefilter_file = DATA_DIR / date_str / f"prefilter_stock_list_{date_str}.csv"
-    target_count = 0
-    if prefilter_file.exists():
-        try:
-            prefilter_df = pd.read_csv(prefilter_file)
-            target_count = len(prefilter_df)
-        except Exception:
-            target_count = 0
-
-    # fallback: prefilter csv 不存在时用原算法（主板+分红>10次）
-    # 冷启动或 prefilter 失败时走这条
-    if target_count == 0 and dividend_count_file.exists():
-        try:
-            dividend_count_df = pd.read_csv(dividend_count_file)
-            # 筛选主板股票（000xxx, 002xxx, 600xxx, 601xxx, 603xxx, 605xxx）
-            def is_main_board_code(code) -> bool:
-                code_str = str(code).zfill(6)
-                return (code_str.startswith('000') or code_str.startswith('001') or
-                        code_str.startswith('002') or code_str.startswith('003') or
-                        code_str.startswith('600') or code_str.startswith('601') or
-                        code_str.startswith('603') or code_str.startswith('605'))
-
-            # 应用筛选：主板 + 分红>10次
-            main_board_df = dividend_count_df[dividend_count_df['股票代码'].apply(is_main_board_code)]
-            target_count = len(main_board_df[main_board_df['分红次数'] > 10])
-        except Exception:
-            target_count = 0
-
-    # 读取 CSV 实际行数作为已完成数
     if file_exists:
         timestamp = dividend_file.stat().st_mtime
-        last_updated_dt = datetime.fromtimestamp(timestamp)
-        last_updated = last_updated_dt.isoformat()
-
+        last_updated = datetime.fromtimestamp(timestamp).isoformat()
         try:
-            csv_df = pd.read_csv(dividend_file)
-            completed_count = len(csv_df)
+            completed_count = len(pd.read_csv(dividend_file))
         except Exception:
             completed_count = 0
 
-        # 如果已完成数 < 目标数，则需要更新
-        # max(0, ...) 兜底：prefilter 后 target 可能 < completed（CSV 残留 1 只历史数据）
-        pending_count = max(0, target_count - completed_count) if target_count > 0 else 0
-        needs_update = completed_count < target_count
-    else:
-        # 文件不存在，需要更新
-        needs_update = True
+    # prefilter 是 target_count 唯一来源（refresh 入口写盘）。
+    # 删 fallback 的原因：原 fallback 用「主板+历史分红>10次」会包含 2025 停分股票
+    # （如 600123），与 refresh 实际口径不一致，会产生「1/144」之类误报。
+    prefilter_file = DATA_DIR / date_str / f"prefilter_stock_list_{date_str}.csv"
+    fhps_info = {
+        "cache_path": str(DATA_DIR / "fhps" / "fhps_20251231.csv"),
+        "cache_exists": (DATA_DIR / "fhps" / "fhps_20251231.csv").exists(),
+        "cache_mtime": datetime.fromtimestamp(
+            (DATA_DIR / "fhps" / "fhps_20251231.csv").stat().st_mtime
+        ).isoformat() if (DATA_DIR / "fhps" / "fhps_20251231.csv").exists() else None,
+        "year_end": "20251231",
+        "note": "每次 /dividend/refresh 都会强制重拉（~30s），无 mtime TTL",
+    }
+
+    if not prefilter_file.exists():
+        # prefilter 不存在一律视为待更新（让用户去点 refresh），
+        # target_count=0 时前端走「更新股息率」默认态，不会显示「待完成 N/M」
+        return {
+            "needs_update": True,
+            "last_updated": last_updated,
+            "file_exists": file_exists,
+            "pending_count": 0,
+            "target_count": 0,
+            "completed_count": completed_count,
+            "failed_codes": [],
+            "fhps": fhps_info,
+        }
+
+    # prefilter 存在 → 正常比对 completed vs target
+    try:
+        target_count = len(pd.read_csv(prefilter_file))
+    except Exception:
+        # prefilter 读盘坏按「待更新」处理（保守，避免静默报 0）
+        return {
+            "needs_update": True,
+            "last_updated": last_updated,
+            "file_exists": file_exists,
+            "pending_count": 0,
+            "target_count": 0,
+            "completed_count": completed_count,
+            "failed_codes": [],
+            "fhps": fhps_info,
+        }
+
+    # max(0, ...) 兜底：prefilter 后 target 可能 < completed（CSV 残留 1 只历史数据）
+    pending_count = max(0, target_count - completed_count)
+    needs_update = completed_count < target_count
 
     return {
         "needs_update": needs_update,
@@ -1631,17 +1632,8 @@ async def get_dividend_status():
         "pending_count": pending_count,
         "target_count": target_count,
         "completed_count": completed_count,
-        "failed_codes": failed_codes,
-        # fhps 全市场预案缓存状态（每次 refresh 会重拉，~30s）
-        "fhps": {
-            "cache_path": str(DATA_DIR / "fhps" / "fhps_20251231.csv"),
-            "cache_exists": (DATA_DIR / "fhps" / "fhps_20251231.csv").exists(),
-            "cache_mtime": datetime.fromtimestamp(
-                (DATA_DIR / "fhps" / "fhps_20251231.csv").stat().st_mtime
-            ).isoformat() if (DATA_DIR / "fhps" / "fhps_20251231.csv").exists() else None,
-            "year_end": "20251231",
-            "note": "每次 /dividend/refresh 都会强制重拉（~30s），无 mtime TTL",
-        },
+        "failed_codes": [],
+        "fhps": fhps_info,
     }
 
 
@@ -1751,7 +1743,7 @@ async def refresh_dividend_data(request: RefreshRequest):
         # 在断点续传过滤之前写，保 142 全量；status 接口对齐 refresh 实际口径
         from src.utils.helpers import save_csv_data
         prefilter_df = pd.DataFrame([{"股票代码": s.code} for s in stock_list])
-        save_csv_data(prefilter_df, "prefilter_stock_list", date_str)
+        save_csv_data(prefilter_df, "prefilter_stock_list.csv", date_str)
         logger.info(f"prefilter stock_list 已写盘: {len(stock_list)} 只")
 
         # Step 2: 检查已处理的股票，实现断点续传
