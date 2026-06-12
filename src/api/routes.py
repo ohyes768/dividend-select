@@ -1601,6 +1601,16 @@ async def get_dividend_status():
         "target_count": target_count,
         "completed_count": completed_count,
         "failed_codes": failed_codes,
+        # fhps 全市场预案缓存状态（每次 refresh 会重拉，~30s）
+        "fhps": {
+            "cache_path": str(DATA_DIR / "fhps" / "fhps_20251231.csv"),
+            "cache_exists": (DATA_DIR / "fhps" / "fhps_20251231.csv").exists(),
+            "cache_mtime": datetime.fromtimestamp(
+                (DATA_DIR / "fhps" / "fhps_20251231.csv").stat().st_mtime
+            ).isoformat() if (DATA_DIR / "fhps" / "fhps_20251231.csv").exists() else None,
+            "year_end": "20251231",
+            "note": "每次 /dividend/refresh 都会强制重拉（~30s），无 mtime TTL",
+        },
     }
 
 
@@ -1644,19 +1654,35 @@ async def refresh_dividend_data(request: RefreshRequest):
         )
 
     start_time = datetime.now()
+    _is_refreshing = True  # 必须在 try 之前设置，异常路径也保证能复位（finally）
 
     try:
-        # 设置并发标志
-        _is_refreshing = True
         logger.info(f"开始刷新股息率数据，min_dividend={request.min_dividend}")
 
         # 导入必要的模块
         from src.core import DividendCalculator
         from src.data import IndexHoldingsFetcher
+        from src.data.fhps_fetcher import FHPSFetcher
         from src.utils import (
             append_csv_row,
             load_existing_codes,
             get_current_date_dir,
+        )
+
+        # Step 0: 拉取 fhps 全市场 2025 年报预案数据（每次重拉 ~30s，**失败直接 503**）
+        logger.info("Step 0: 拉取 fhps 全市场 2025 年报预案数据...")
+        fhps_fetcher = FHPSFetcher(year_end="20251231")
+        try:
+            fhps_fetcher.fetch()
+        except Exception as e:
+            logger.error(f"fhps 拉取失败，终止 refresh: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail=f"fhps 全市场预案数据拉取失败: {str(e)}",
+            )
+        s = fhps_fetcher.stats()
+        logger.info(
+            f"fhps 加载完成: {s['total_rows']} 行, 覆盖 {s['unique_stocks']} 只股票"
         )
 
         # 获取当前日期目录
@@ -1740,7 +1766,7 @@ async def refresh_dividend_data(request: RefreshRequest):
                 logger.error(f"保存 {result.code} 失败: {e}")
                 failed_count += 1
 
-        calculator = DividendCalculator()
+        calculator = DividendCalculator(fhps_fetcher=fhps_fetcher)
         _, failed_codes = calculator.calculate_all(stock_list, on_complete=on_stock_complete)
 
         end_time = datetime.now()
@@ -1780,6 +1806,41 @@ async def refresh_dividend_data(request: RefreshRequest):
             status_code=500,
             detail=f"刷新失败: {str(e)}"
         )
+    finally:
+        _is_refreshing = False
+        logger.debug("股息率刷新并发控制标志已清除")
+
+
+@router.post("/dividend/fhps/refresh")
+async def refresh_fhps_cache():
+    """
+    强制刷新 fhps 全市场预案缓存（不动 dividend 主流程）
+
+    用例: 财报季（4-6 月）每天都想看最新 fhps 进度，又不想跑完整 dividend 刷新
+
+    返回:
+    - success: 是否成功
+    - message: 提示信息
+    - stats: fhps 缓存元信息（year_end / cache_path / total_rows / unique_stocks）
+    """
+    from src.data.fhps_fetcher import FHPSFetcher
+    fetcher = FHPSFetcher(year_end="20251231")
+    try:
+        fetcher.fetch()
+        s = fetcher.stats()
+        return {
+            "success": True,
+            "message": "fhps 缓存已刷新",
+            "stats": s,
+        }
+    except Exception as e:
+        logger.error(f"fhps 强制刷新失败: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"fhps 刷新失败: {str(e)}",
+        )
+
+
 async def _load_report_context() -> dict:
     """
     加载生成报告所需的全部数据（one-pager / carousel 路由共用）。

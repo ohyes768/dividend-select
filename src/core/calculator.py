@@ -67,9 +67,14 @@ def set_rate_limited():
 class DividendCalculator:
     """股息率计算器"""
 
-    def __init__(self):
+    def __init__(self, fhps_fetcher: Optional["FHPSFetcher"] = None):
+        """
+        Args:
+            fhps_fetcher: fhps 批量数据源（必须传入，2025 年报预案补充靠它）
+        """
         self._price_cache: dict[str, pd.DataFrame] = {}
         self._dividend_cache: dict[str, pd.DataFrame] = {}
+        self._fhps_fetcher = fhps_fetcher
 
     def _get_stock_price(self, code: str) -> Optional[pd.DataFrame]:
         """
@@ -221,10 +226,11 @@ class DividendCalculator:
         """
         获取指定股票的分红数据
 
-        1. 使用 stock_dividend_cninfo（巨潮资讯，有分红年度）
-        2. 使用 stock_history_dividend_detail 补充预案记录（公告日期-1年作为财年）
+        1. 使用 stock_dividend_cninfo（巨潮资讯，有分红年度，**主要数据源**）
+        2. 从 fhps 批量缓存补充 2025 年报预案（O(1) 内存查表，替代原 Sina detail）
 
-        带重试机制（3次，间隔3秒）
+        巨潮失败 3 次后返回 None（不静默退到 fhps 兜底，cninfo 是 ground truth）。
+        fhps 没数据时该股不补 2025 年报预案，自然被 3 年连续分红筛掉。
         """
         code = str(code).zfill(6)
 
@@ -276,26 +282,19 @@ class DividendCalculator:
             df["_is_cninfo"] = True
             df["_source"] = "cninfo"
 
-        # 获取detail数据（补充预案，公告日期-1年作为财年）
-        detail_df = None
-        for attempt in range(1, max_retries + 1):
-            try:
-                detail_raw = ak.stock_history_dividend_detail(symbol=code)
-                if detail_raw is not None and not detail_raw.empty:
-                    detail_df = detail_raw
-                    break
-            except Exception as e:
-                if attempt < max_retries:
-                    time.sleep(retry_delay)
-                else:
-                    logger.warning(f"{code} detail接口失败(第{attempt}次): {e}")
+        # 补充预案数据：fhps 批量（O(1) 内存查表，替代原 Sina detail）
+        # cninfo-first 去重：cninfo 已有 (财年, 报告时间) 时不补
+        if self._fhps_fetcher is None:
+            raise RuntimeError(
+                "DividendCalculator 未注入 fhps_fetcher，无法补充 2025 年报预案数据。"
+                "请在 routes.py 入口先 FHPSFetcher().fetch() 再传进来。"
+            )
 
-            if attempt == max_retries or (detail_df is not None and not detail_df.empty):
-                break
-
-        # 合并数据
-        if detail_df is not None and not detail_df.empty:
-            # 确保cninfo数据有效，如果为空则创建空DataFrame
+        fhps_records = self._fhps_fetcher.get_for_code(code)
+        if fhps_records is None or fhps_records.empty:
+            logger.info(f"{code}: fhps 无预案记录（年报未出/未通过股东大会/被过滤）")
+        else:
+            # 确保 df 是有效 DataFrame（即使 cninfo 没数据也建空骨架）
             if df is None or df.empty:
                 df = pd.DataFrame(columns=[
                     "实施方案公告日期", "分红类型", "送股比例", "转增比例",
@@ -303,7 +302,7 @@ class DividendCalculator:
                     "股份到账日", "实施方案分红说明", "报告时间", "财年", "_is_cninfo", "_source"
                 ])
 
-            # 构建cninfo的去重key：用(财年, 报告时间)组合去重，而非单独用除权日
+            # 构建 cninfo 的 (财年, 报告时间) 去重 key
             cninfo_keys = set()
             for _, row in df.iterrows():
                 fiscal_year = row.get("财年")
@@ -311,42 +310,51 @@ class DividendCalculator:
                 if fiscal_year is not None and report_time is not None and not pd.isna(fiscal_year):
                     cninfo_keys.add((int(fiscal_year), str(report_time)))
 
-            # 找出detail中状态为"预案"且不在cninfo中的记录
             new_records = []
-            for _, row in detail_df.iterrows():
-                # 只补充预案记录
-                if row["进度"] != "预案":
+            for _, frow in fhps_records.iterrows():
+                fy_raw = frow.get("财年")
+                if pd.isna(fy_raw):
                     continue
-
-                # 公告日期-1年作为财年
-                announce_date = pd.to_datetime(row["公告日期"])
-                fiscal_year = announce_date.year - 1
+                fiscal_year = int(fy_raw)
                 report_time = f"{fiscal_year}年报(预案)"
 
-                # 用(财年, 报告时间)去重
+                # cninfo-first：cninfo 已有同 (财年, 报告时间) 记录就不补
                 if (fiscal_year, report_time) in cninfo_keys:
                     continue
 
+                # 派息比例：fhps 字段是"每 10 股 X 元"，与 cninfo 派息比例同量纲
+                payout_ratio_raw = frow.get("现金分红-现金分红比例")
+                if payout_ratio_raw is None or pd.isna(payout_ratio_raw):
+                    logger.warning(f"{code}: fhps 财年 {fiscal_year} 缺少现金分红比例，跳过")
+                    continue
+                payout_ratio = float(payout_ratio_raw)
+
                 new_records.append({
-                    "实施方案公告日期": row["公告日期"],
+                    "实施方案公告日期": frow.get("预案公告日"),
                     "分红类型": "预案",
-                    "送股比例": row["送股"],
-                    "转增比例": row["转增"],
-                    "派息比例": row["派息"],
-                    "股权登记日": row["股权登记日"],
-                    "除权除息日": row["除权除息日"],
-                    "派息日": row.get("红股上市日"),
+                    "送股比例": float(frow.get("送转股份-送股比例") or 0.0),
+                    "转增比例": float(frow.get("送转股份-转股比例") or 0.0),
+                    "派息比例": payout_ratio,  # 量纲: 每 10 股派 X 元
+                    "股权登记日": frow.get("股权登记日"),
+                    "除权除息日": frow.get("除权除息日"),
+                    "派息日": None,
                     "股份到账日": None,
-                    "实施方案分红说明": f"预案: 10派{row['派息']}元",
+                    "实施方案分红说明": (
+                        f"预案: 10派{payout_ratio}元 (来源: fhps, "
+                        f"状态: {frow.get('方案进度')}, 公告日: {frow.get('预案公告日')})"
+                    ),
                     "报告时间": report_time,
                     "财年": fiscal_year,
-                    "_is_cninfo": True,
-                    "_source": "detail",
+                    "_is_cninfo": True,  # 下游走 cninfo 分支
+                    "_source": "fhps",
                 })
 
             if new_records:
                 df = pd.concat([df, pd.DataFrame(new_records)], ignore_index=True)
-                logger.info(f"{code}: 补充 {len(new_records)} 条预案记录")
+                logger.info(
+                    f"{code}: fhps 补充 {len(new_records)} 条预案记录 "
+                    f"(状态: {fhps_records['方案进度'].unique().tolist()})"
+                )
 
         if df is not None and not df.empty:
             self._dividend_cache[code] = df
