@@ -162,6 +162,11 @@ def main():
 
     logger.info(f"获取到 {len(stock_list)} 只符合条件的股票")
 
+    # prefilter stock_list 持久化（与 routes.py refresh 行为一致，status 接口用）
+    prefilter_df = pd.DataFrame([{"股票代码": s.code} for s in stock_list])
+    save_csv_data(prefilter_df, "prefilter_stock_list", date_str)
+    logger.info(f"prefilter stock_list 已写盘: {len(stock_list)} 只")
+
     # Step 2: 检查已处理的股票，实现断点续传
     existing_codes = load_existing_codes(OUTPUT_FILE, date_str)
     if existing_codes:

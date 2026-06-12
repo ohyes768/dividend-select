@@ -1568,9 +1568,20 @@ async def get_dividend_status():
     completed_count = 0
     failed_codes: list[str] = []
 
-    # 读取股票分红次数汇总行数作为目标总数（已筛选：主板+分红>10次）
+    # 优先读 prefilter csv 算 target_count（与 refresh 实际口径对齐）
+    # refresh 入口写盘 data/{date_str}/prefilter_stock_list_{date_str}.csv
+    prefilter_file = DATA_DIR / date_str / f"prefilter_stock_list_{date_str}.csv"
     target_count = 0
-    if dividend_count_file.exists():
+    if prefilter_file.exists():
+        try:
+            prefilter_df = pd.read_csv(prefilter_file)
+            target_count = len(prefilter_df)
+        except Exception:
+            target_count = 0
+
+    # fallback: prefilter csv 不存在时用原算法（主板+分红>10次）
+    # 冷启动或 prefilter 失败时走这条
+    if target_count == 0 and dividend_count_file.exists():
         try:
             dividend_count_df = pd.read_csv(dividend_count_file)
             # 筛选主板股票（000xxx, 002xxx, 600xxx, 601xxx, 603xxx, 605xxx）
@@ -1600,7 +1611,8 @@ async def get_dividend_status():
             completed_count = 0
 
         # 如果已完成数 < 目标数，则需要更新
-        pending_count = target_count - completed_count if target_count > 0 else 0
+        # max(0, ...) 兜底：prefilter 后 target 可能 < completed（CSV 残留 1 只历史数据）
+        pending_count = max(0, target_count - completed_count) if target_count > 0 else 0
         needs_update = completed_count < target_count
     else:
         # 文件不存在，需要更新
@@ -1728,6 +1740,13 @@ async def refresh_dividend_data(request: RefreshRequest):
             )
 
         logger.info(f"获取到 {len(stock_list)} 只符合条件的股票")
+
+        # 写 prefilter 后的 stock_list 持久化（status 接口读这个算 target_count）
+        # 在断点续传过滤之前写，保 142 全量；status 接口对齐 refresh 实际口径
+        from src.utils.helpers import save_csv_data
+        prefilter_df = pd.DataFrame([{"股票代码": s.code} for s in stock_list])
+        save_csv_data(prefilter_df, "prefilter_stock_list", date_str)
+        logger.info(f"prefilter stock_list 已写盘: {len(stock_list)} 只")
 
         # Step 2: 检查已处理的股票，实现断点续传
         existing_codes = load_existing_codes(output_file, date_str)
