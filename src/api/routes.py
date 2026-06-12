@@ -1669,21 +1669,22 @@ async def refresh_dividend_data(request: RefreshRequest):
             get_current_date_dir,
         )
 
-        # Step 0: 拉取 fhps 全市场 2025 年报预案数据（每次重拉 ~30s，**失败直接 503**）
+        # Step 0: 拉取 fhps 全市场 2025 年报预案数据（每次重拉 ~30s）
+        # 行为变更（commit 待补）: 失败从直接 503 改为 logger.warning + 降级
+        # 不预筛继续 refresh，prefilter 跳过、calculator 收到 None 走原路径
+        # （calculator 仍可能 RuntimeError 进 failed_codes，但 refresh 不会中断）
         logger.info("Step 0: 拉取 fhps 全市场 2025 年报预案数据...")
-        fhps_fetcher = FHPSFetcher(year_end="20251231")
+        fhps_fetcher = None
         try:
+            fhps_fetcher = FHPSFetcher(year_end="20251231")
             fhps_fetcher.fetch()
-        except Exception as e:
-            logger.error(f"fhps 拉取失败，终止 refresh: {e}")
-            raise HTTPException(
-                status_code=503,
-                detail=f"fhps 全市场预案数据拉取失败: {str(e)}",
+            s = fhps_fetcher.stats()
+            logger.info(
+                f"fhps 加载完成: {s['total_rows']} 行, 覆盖 {s['unique_stocks']} 只股票"
             )
-        s = fhps_fetcher.stats()
-        logger.info(
-            f"fhps 加载完成: {s['total_rows']} 行, 覆盖 {s['unique_stocks']} 只股票"
-        )
+        except Exception as e:
+            logger.warning(f"fhps 拉取失败，降级不预筛继续 refresh: {e}")
+            fhps_fetcher = None
 
         # 获取当前日期目录
         date_str = get_current_date_dir()
@@ -1691,7 +1692,7 @@ async def refresh_dividend_data(request: RefreshRequest):
 
         # Step 1: 获取股票列表（使用 API 获取）
         logger.info("Step 1: 获取股票列表...")
-        fetcher = IndexHoldingsFetcher(use_local=False)
+        fetcher = IndexHoldingsFetcher(use_local=False, fhps_fetcher=fhps_fetcher)
         stock_list = fetcher.get_stock_list(
             min_dividend_count=request.min_dividend,
             min_yield=2.0,  # 粗略股息率筛选阈值

@@ -17,6 +17,7 @@ from datetime import datetime
 import pandas as pd
 
 from src.data import IndexHoldingsFetcher
+from src.data.fhps_fetcher import FHPSFetcher
 from src.core import DividendCalculator
 from src.utils import setup_logger, save_csv_data, append_csv_row, load_existing_codes, move_all_data_files, get_current_date_dir
 from src.data.models import StockResult
@@ -135,9 +136,24 @@ def main():
             logger.warning("  部分数据移动失败，将继续执行")
         print()
 
+    # Step 0: 拉取 fhps 全市场 2025 年报预案数据（与 routes.py 入口行为对齐）
+    # 失败时降级不预筛继续（与 routes.py 一致）
+    logger.info("Step 0: 拉取 fhps 全市场 2025 年报预案数据...")
+    fhps_fetcher = None
+    try:
+        fhps_fetcher = FHPSFetcher(year_end="20251231")
+        fhps_fetcher.fetch()
+        s = fhps_fetcher.stats()
+        logger.info(
+            f"fhps 加载完成: {s['total_rows']} 行, 覆盖 {s['unique_stocks']} 只股票"
+        )
+    except Exception as e:
+        logger.warning(f"fhps 拉取失败，降级不预筛: {e}")
+        fhps_fetcher = None
+
     # Step 1: 获取股票列表（数据会保存到 date_str 目录）
     logger.info("Step 1: 获取股票列表...")
-    fetcher = IndexHoldingsFetcher(use_local=args.use_local)
+    fetcher = IndexHoldingsFetcher(use_local=args.use_local, fhps_fetcher=fhps_fetcher)
     stock_list = fetcher.get_stock_list(min_dividend_count=args.min_dividend, date_str=date_str)
 
     if not stock_list:
@@ -171,7 +187,7 @@ def main():
         append_csv_row(result.to_dict(), OUTPUT_FILE, date_str)
         logger.info(f"已保存 {result.code} {result.name}")
 
-    calculator = DividendCalculator()
+    calculator = DividendCalculator(fhps_fetcher=fhps_fetcher)
     results = calculator.calculate_all(stock_list, on_complete=on_stock_complete)
 
     logger.info(f"处理完成，新增 {len(results)} 只股票数据")

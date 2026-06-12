@@ -20,6 +20,7 @@ from ..utils.helpers import (
     save_csv_data,
 )
 from .models import StockBasicInfo
+from .fhps_fetcher import FHPSFetcher
 
 logger = setup_logger(__name__)
 
@@ -47,14 +48,18 @@ DIVIDEND_INDEXES = {
 class IndexHoldingsFetcher:
     """红利指数持仓获取器"""
 
-    def __init__(self, use_local: bool = False):
+    def __init__(self, use_local: bool = False, fhps_fetcher: Optional[FHPSFetcher] = None):
         """
         初始化
 
         Args:
             use_local: 是否使用本地已有数据（跳过API获取）
+            fhps_fetcher: fhps 全市场预案 fetcher；非 None 时 get_stock_list 会前置
+                过滤掉"2025 年无分红"的股票（口径与 calculator 内部消费一致）。
+                None 时跳过 prefilter（用历史累计筛选结果）。
         """
         self.use_local = use_local
+        self._fhps_fetcher = fhps_fetcher
         self.holdings_file = DATA_DIR / "红利指数持仓汇总.csv"
         self.dividend_count_file = DATA_DIR / "股票分红次数汇总.csv"
 
@@ -274,6 +279,25 @@ class IndexHoldingsFetcher:
         # if min_yield > 0 and not self.use_local:
         #     filtered_df = self._filter_by_crude_yield(filtered_df, min_yield)
         #     logger.info(f"粗略股息率筛选(>{min_yield}%): 剩余 {len(filtered_df)} 只股票")
+
+        # Step 4.5（新增）: fhps 预筛 —— 排除"2025 年无分红"的股票
+        # 约定：调用方（routes.py / main.py）在 Step 0 先 fhps_fetcher.fetch()，
+        # _indexed 一定在内存；口径与 calculator 内部消费一致（同 year_end、同
+        # ACCEPTED_PROGRESS_STATUSES），无补漏风险。fhps_fetcher=None 时降级跳过。
+        if self._fhps_fetcher is not None:
+            n_before = len(filtered_df)
+            indexed_codes = set(self._fhps_fetcher._indexed.keys())
+            filtered_df = filtered_df[
+                filtered_df["股票代码"].astype(str).str.zfill(6).isin(indexed_codes)
+            ]
+            n_after = len(filtered_df)
+            n_filtered = n_before - n_after
+            if n_filtered > 0:
+                logger.info(
+                    f"fhps 预筛: 排除 {n_filtered} 只 2025 年无分红股票（剩 {n_after} 只）"
+                )
+        else:
+            logger.info("fhps_fetcher 未注入，跳过 prefilter（用历史累计筛选结果）")
 
         # 转换为StockBasicInfo列表
         result = []
