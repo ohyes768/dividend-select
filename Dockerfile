@@ -21,8 +21,11 @@ COPY uv.lock ./
 COPY config ./config
 COPY src ./src
 
-# 安装依赖
-RUN uv pip install --system -e .
+# 安装依赖（uv sync 从 lock 文件精确安装，比 pip install -e . 可靠）
+RUN uv sync --frozen --no-dev
+
+# 将 venv 加入 PATH，后续 CMD 直接使用 venv 中的 uvicorn
+ENV PATH="/app/.venv/bin:$PATH"
 
 # 创建数据目录
 RUN mkdir -p data logs
