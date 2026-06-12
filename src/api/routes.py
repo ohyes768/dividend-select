@@ -624,7 +624,9 @@ async def get_m120_stocks(
 
 
 @router.get("/m120/status")
-async def get_m120_status():
+async def get_m120_status(
+    min_yield: float = Query(3.5, description="最小股息率(%)，与前端展示口径对齐，默认3.5%"),
+):
     """
     获取 M120 数据状态
 
@@ -632,10 +634,13 @@ async def get_m120_status():
     - needs_update: 是否需要更新（文件不存在 或 有股票缺失M120数据）
     - last_updated: 上次更新时间
     - file_exists: 文件是否存在
-    - missing_count: 缺失M120数据的股票数量
-    - missing_codes: 缺失M120数据的股票代码列表
+    - missing_count: 缺失M120数据的股票数量（在 min_yield 集合内）
+    - missing_codes: 缺失M120数据的股票代码列表（在 min_yield 集合内）
+
+    min_yield 用于跟前端展示口径对齐：只算前端会展示的股票中缺 M120 的，
+    避免 < min_yield 的股票被算进 missing 导致按钮永远高亮。
     """
-    if m120_service is None or data_reader is None:
+    if m120_service is None or data_reader is None or filter_service is None:
         raise HTTPException(status_code=500, detail="服务未初始化")
 
     from datetime import datetime
@@ -652,9 +657,10 @@ async def get_m120_status():
                 last_updated_dt = datetime.fromtimestamp(timestamp)
                 last_updated = last_updated_dt.isoformat()
 
-    # 读取当前股票列表（与 stocks 接口一致，排除只看高股息的过滤）
-    # 用 min_yield=0 获取所有有分红的股票，与前端实际展示范围对齐
+    # 读取当前股票列表 + 按 min_yield 筛（与前端展示口径对齐）
     all_stocks_df = data_reader.read_csv()
+    if min_yield > 0:
+        all_stocks_df = filter_service.filter_by_3y_dividend(all_stocks_df, min_avg_yield=min_yield)
     all_codes = set(str(int(c)).zfill(6) for c in all_stocks_df["股票代码"])
 
     # 读取 M120 数据
