@@ -279,7 +279,7 @@ class IndexHoldingsFetcher:
         result = []
         for _, row in filtered_df.iterrows():
             result.append(StockBasicInfo(
-                code=row["股票代码"],
+                code=str(row["股票代码"]),
                 name=row["股票名称"],
                 exchange=row["交易所"],
                 source_index=row["来源指数"],

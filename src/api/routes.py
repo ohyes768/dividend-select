@@ -1789,7 +1789,7 @@ async def refresh_dividend_data(request: RefreshRequest):
                 target_count=initial_count,
                 completed_count=completed_count,
                 failed_count=failed_count,
-                failed_codes=failed_codes,
+                failed_codes=[str(c) for c in failed_codes],
                 file_path=f"data/{date_str}/{output_file}",
                 start_time=start_time.isoformat(),
                 end_time=end_time.isoformat(),
