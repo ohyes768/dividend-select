@@ -18,8 +18,8 @@ logger = setup_logger(__name__)
 # 缓存目录: data/fhps/
 FHPS_CACHE_DIR = DATA_DIR / "fhps"
 
-# 接受的分红方案进度（过滤掉"董事会决议通过"，等股东大会可能改金额/否决）
-ACCEPTED_PROGRESS_STATUSES = frozenset({"实施分配", "股东大会决议通过"})
+# 接受的分红方案进度（含"董事会决议通过"，仅过滤"未通过/已撤销"等）
+ACCEPTED_PROGRESS_STATUSES = frozenset({"实施分配", "股东大会决议通过", "董事会决议通过"})
 
 
 class FHPSFetcher:
@@ -141,7 +141,7 @@ class FHPSFetcher:
             self._indexed = {}
             return
 
-        # 过滤"董事会决议通过"等不可接受状态
+        # 过滤"未通过/已撤销"等非可接受状态
         mask = self._df["方案进度"].isin(ACCEPTED_PROGRESS_STATUSES)
         n_raw = len(self._df)
         n_skipped = (~mask).sum()
@@ -153,6 +153,6 @@ class FHPSFetcher:
             for code, group in filtered.groupby("代码")
         }
         logger.info(
-            f"fhps 索引构建完成: 原始 {n_raw} 行 → 过滤 {n_skipped} 行董事会状态 → "
+            f"fhps 索引构建完成: 原始 {n_raw} 行 → 过滤 {n_skipped} 行非可接受状态 → "
             f"索引 {len(filtered)} 行, 覆盖 {len(self._indexed)} 只股票"
         )
