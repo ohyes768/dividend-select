@@ -517,14 +517,15 @@ async def get_stats():
 
 @router.get("/m120", response_model=M120ListResponse)
 async def get_m120_stocks(
-    min_yield: float = Query(5.0, description="最小股息率(%)，默认5%"),
+    min_yield: float = Query(5.0, description="最小股息率(%)，默认5%，传0则不过滤"),
     sort_by: str = Query("avg_yield_3y", description="排序字段"),
     sort_order: str = Query("desc", description="排序方向(asc/desc)")
 ):
     """
-    批量获取筛选出来的股息率>=5的股票的 M120 数据
+    批量获取股票的 M120 数据
 
-    该接口每天刷新一次 M120 数据，适用于 n8n 定时调用。
+    min_yield=0 时不过滤，返回所有有股息数据的股票（用于前端技术指标匹配）
+    默认 min_yield=5 用于 n8n 定时调用（只刷新高股息股）
 
     返回数据：
     - 股票代码
@@ -548,8 +549,10 @@ async def get_m120_stocks(
             last_updated=None
         )
 
-    # 筛选：3年平均股息率 >= min_yield 且 2023/2024/2025 每年都有分红
-    df = filter_service.filter_by_3y_dividend(df, min_avg_yield=min_yield)
+    # 筛选：min_yield=0 时不过滤，返回所有股票（前端匹配用）
+    # 否则只返回高股息股（n8n 刷新用）
+    if min_yield > 0:
+        df = filter_service.filter_by_3y_dividend(df, min_avg_yield=min_yield)
 
     # 读取 M120 数据和实时价格，实时计算偏离度
     m120_data = m120_service.read_m120_with_deviation()
@@ -626,13 +629,13 @@ async def get_m120_status():
     获取 M120 数据状态
 
     返回：
-    - needs_update: 是否需要更新（文件不存在则需要）
+    - needs_update: 是否需要更新（文件不存在 或 有股票缺失M120数据）
     - last_updated: 上次更新时间
     - file_exists: 文件是否存在
-    - missing_count: 始终为0（前端自行判断缺失）
-    - missing_codes: 始终为空列表（前端自行判断缺失）
+    - missing_count: 缺失M120数据的股票数量
+    - missing_codes: 缺失M120数据的股票代码列表
     """
-    if m120_service is None:
+    if m120_service is None or data_reader is None:
         raise HTTPException(status_code=500, detail="服务未初始化")
 
     from datetime import datetime
@@ -649,15 +652,25 @@ async def get_m120_status():
                 last_updated_dt = datetime.fromtimestamp(timestamp)
                 last_updated = last_updated_dt.isoformat()
 
-    # 是否需要更新：文件不存在则需要
-    needs_update = not file_exists
+    # 读取当前股票列表（与 stocks 接口一致，排除只看高股息的过滤）
+    # 用 min_yield=0 获取所有有分红的股票，与前端实际展示范围对齐
+    all_stocks_df = data_reader.read_csv()
+    all_codes = set(str(int(c)).zfill(6) for c in all_stocks_df["股票代码"])
+
+    # 读取 M120 数据
+    m120_data = m120_service.read_m120_data()
+    m120_codes = set(m120_data.keys())
+
+    # 找出缺失 M120 的股票（当前股票列表中有，但 m120 数据中没有的）
+    missing_codes = sorted(all_codes - m120_codes)
+    needs_update = not file_exists or len(missing_codes) > 0
 
     return {
         "needs_update": needs_update,
         "last_updated": last_updated,
         "file_exists": file_exists,
-        "missing_count": 0,
-        "missing_codes": [],
+        "missing_count": len(missing_codes),
+        "missing_codes": missing_codes,
     }
 
 
