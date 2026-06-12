@@ -302,13 +302,28 @@ class DividendCalculator:
                     "股份到账日", "实施方案分红说明", "报告时间", "财年", "_is_cninfo", "_source"
                 ])
 
-            # 构建 cninfo 的 (财年, 报告时间) 去重 key
-            cninfo_keys = set()
+            # 构建 cninfo 的 (财年, 报告期类型) 去重 key
+            # 报告期类型: '年报' / '半年报' / '一季报' / '三季报'
+            # 这样 fhps 的 "2025年报(预案)" 和 cninfo 的 "2025年报" 同属 "年报"，会去重
+            # 但 cninfo 有 "2025半年报" 而 fhps 补 "2025年报" 不会被误判
+            cninfo_year_period = set()
             for _, row in df.iterrows():
-                fiscal_year = row.get("财年")
-                report_time = row.get("报告时间")
-                if fiscal_year is not None and report_time is not None and not pd.isna(fiscal_year):
-                    cninfo_keys.add((int(fiscal_year), str(report_time)))
+                fy = row.get("财年")
+                rt = row.get("报告时间")
+                if fy is None or pd.isna(fy) or rt is None or pd.isna(rt):
+                    continue
+                rt_str = str(rt)
+                if "年报" in rt_str and "半年" not in rt_str:
+                    period = "年报"
+                elif "半年报" in rt_str:
+                    period = "半年报"
+                elif "一季报" in rt_str:
+                    period = "一季报"
+                elif "三季报" in rt_str:
+                    period = "三季报"
+                else:
+                    period = rt_str
+                cninfo_year_period.add((int(fy), period))
 
             new_records = []
             for _, frow in fhps_records.iterrows():
@@ -316,10 +331,12 @@ class DividendCalculator:
                 if pd.isna(fy_raw):
                     continue
                 fiscal_year = int(fy_raw)
+                # fhps_em 拉的是年报，"2025年报(预案)" 属于 "年报" 类型
+                period = "年报"
                 report_time = f"{fiscal_year}年报(预案)"
 
-                # cninfo-first：cninfo 已有同 (财年, 报告时间) 记录就不补
-                if (fiscal_year, report_time) in cninfo_keys:
+                # cninfo-first：cninfo 已有同 (财年, 年报) 记录（不论实施/预案）就不补
+                if (fiscal_year, period) in cninfo_year_period:
                     continue
 
                 # 派息比例：fhps 字段是"每 10 股 X 元"，与 cninfo 派息比例同量纲
