@@ -5,12 +5,17 @@
 （截至 akshare 1.16.x）。回归 guard 防止猜错列名。
 """
 import sys
+from datetime import date
 from unittest.mock import patch
 
 import pandas as pd
 import pytest
 
-from src.data.financial_fetcher import FinancialFetcher
+from src.data.financial_fetcher import (
+    FinancialFetcher,
+    QUARTERLY_YOY_BASE_DATE,
+    QUARTERLY_YOY_REPORT_DATE,
+)
 
 
 class TestCalcLatestEps:
@@ -90,4 +95,72 @@ class TestCalcLatestEps:
         # 必须取到 2025 年报数据
         assert result["最新EPS年度"] == 2025, f"应取 2025-12-31，实际 {result}"
         assert result["最新EPS(元)"] == 1.20, f"应用摊薄EPS=1.20，实际 {result}"
+
+
+class TestCalcQuarterlyYoy:
+    """_calc_quarterly_yoy 单元测试（固定 2026Q1 vs 2025Q1 扣非同比）"""
+
+    @pytest.fixture
+    def fetcher(self):
+        return FinancialFetcher()
+
+    def test_normal(self, fetcher):
+        """正常：2026Q1=272e8, 2025Q1=268e8, 同比=(272-268)/268≈1.49%"""
+        df = pd.DataFrame({
+            "日期": [QUARTERLY_YOY_REPORT_DATE, QUARTERLY_YOY_BASE_DATE,
+                     date(2025, 12, 31), date(2024, 12, 31)],
+            "扣除非经常性损益后的净利润(元)": [272e8, 268e8, 1000e8, 950e8],
+        })
+        result = fetcher._calc_quarterly_yoy(df)
+        assert result["最新季度扣非(元)"] == 272e8
+        # (272-268)/268 * 100 = 1.4925... → round 2 → 1.49
+        assert result["最新季度扣非同比(%)"] == 1.49
+
+    def test_missing_2026q1(self, fetcher):
+        """未发布 2026Q1（如新股刚上市）：绝对值与同比都 None"""
+        df = pd.DataFrame({
+            "日期": [QUARTERLY_YOY_BASE_DATE, date(2025, 12, 31), date(2024, 12, 31)],
+            "扣除非经常性损益后的净利润(元)": [268e8, 1000e8, 950e8],
+        })
+        result = fetcher._calc_quarterly_yoy(df)
+        assert result == {"最新季度扣非(元)": None, "最新季度扣非同比(%)": None}
+
+    def test_missing_2025q1(self, fetcher):
+        """有 2026Q1 但缺去年同期（极少见）：绝对值有、同比 None"""
+        df = pd.DataFrame({
+            "日期": [QUARTERLY_YOY_REPORT_DATE, date(2025, 12, 31)],
+            "扣除非经常性损益后的净利润(元)": [272e8, 1000e8],
+        })
+        result = fetcher._calc_quarterly_yoy(df)
+        assert result["最新季度扣非(元)"] == 272e8
+        assert result["最新季度扣非同比(%)"] is None
+
+    def test_base_value_zero(self, fetcher):
+        """去年同期扣非=0（基数极小/亏损边缘）：同比 None 避免除零爆炸"""
+        df = pd.DataFrame({
+            "日期": [QUARTERLY_YOY_REPORT_DATE, QUARTERLY_YOY_BASE_DATE],
+            "扣除非经常性损益后的净利润(元)": [100e8, 0],
+        })
+        result = fetcher._calc_quarterly_yoy(df)
+        assert result["最新季度扣非(元)"] == 100e8
+        assert result["最新季度扣非同比(%)"] is None
+
+    def test_real_akshare_columns_and_dates(self, fetcher):
+        """Regression guard：真实 akshare 列名 + datetime.date 格式
+        防止再改 akshare 接口时猜错列名或日期解析。
+        """
+        import datetime
+        df = pd.DataFrame({
+            "日期": [
+                datetime.date(2025, 3, 31),  # 去年同期
+                datetime.date(2026, 3, 31),  # 本期
+                datetime.date(2025, 12, 31),
+                datetime.date(2024, 12, 31),
+            ],
+            "摊薄每股收益(元)": [0.30, 0.32, 1.20, 1.00],  # 干扰列
+            "扣除非经常性损益后的净利润(元)": [268e8, 272e8, 1000e8, 950e8],
+        })
+        result = fetcher._calc_quarterly_yoy(df)
+        assert result["最新季度扣非(元)"] == 272e8
+        assert result["最新季度扣非同比(%)"] == 1.49
 

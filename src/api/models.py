@@ -101,6 +101,8 @@ class DividendStock(BaseModel):
     eps: Optional[float] = Field(None, description="最近一期年报摊薄每股收益(元)")
     eps_year: Optional[int] = Field(None, description="最近一期年报年度")
     payout_ratio: Optional[float] = Field(None, description="分红比例(%)：每股分红/每股净利润×100")
+    latest_quarter_net_profit_ex_non_recurring: Optional[float] = Field(None, description="最新季度扣非净利润(元)，2026Q1")
+    latest_quarter_yoy_pct: Optional[float] = Field(None, description="最新季度扣非同比(%)，2026Q1 vs 2025Q1")
 
     # 近5年分红详情
     dividend_history: Optional[list[DividendHistoryItem]] = Field(None, description="近5年分红详情")

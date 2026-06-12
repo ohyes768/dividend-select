@@ -136,4 +136,6 @@ class FinancialReader:
             "net_profit_cagr_3y": float(row["3年复合增长率"]) if pd.notna(row.get("3年复合增长率")) else None,
             "eps_year": int(row["最新EPS年度"]) if pd.notna(row.get("最新EPS年度")) else None,
             "eps": float(row["最新EPS(元)"]) if pd.notna(row.get("最新EPS(元)")) else None,
+            "latest_quarter_net_profit_ex_non_recurring": float(row["最新季度扣非(元)"]) if pd.notna(row.get("最新季度扣非(元)")) else None,
+            "latest_quarter_yoy_pct": float(row["最新季度扣非同比(%)"]) if pd.notna(row.get("最新季度扣非同比(%)")) else None,
         }

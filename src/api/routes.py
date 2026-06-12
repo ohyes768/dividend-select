@@ -219,6 +219,8 @@ def _row_to_stock_model(row: pd.Series, info: Optional[dict] = None,
         net_profit_cagr_3y=financial_data.get("net_profit_cagr_3y") if financial_data else None,
         eps=financial_data.get("eps") if financial_data else None,
         eps_year=financial_data.get("eps_year") if financial_data else None,
+        latest_quarter_net_profit_ex_non_recurring=financial_data.get("latest_quarter_net_profit_ex_non_recurring") if financial_data else None,
+        latest_quarter_yoy_pct=financial_data.get("latest_quarter_yoy_pct") if financial_data else None,
         payout_ratio=None,  # 下面计算后赋值
         dividend_history=None,  # 先设为 None，后面解析后替换
     )
@@ -396,6 +398,8 @@ async def get_stocks(
                     "net_profit_cagr_3y": float(fi_row["3年复合增长率"]) if pd.notna(fi_row.get("3年复合增长率")) else None,
                     "eps": float(fi_row["最新EPS(元)"]) if pd.notna(fi_row.get("最新EPS(元)")) else None,
                     "eps_year": int(fi_row["最新EPS年度"]) if pd.notna(fi_row.get("最新EPS年度")) else None,
+                    "latest_quarter_net_profit_ex_non_recurring": float(fi_row["最新季度扣非(元)"]) if pd.notna(fi_row.get("最新季度扣非(元)")) else None,
+                    "latest_quarter_yoy_pct": float(fi_row["最新季度扣非同比(%)"]) if pd.notna(fi_row.get("最新季度扣非同比(%)")) else None,
                 }
 
     # 无分页，返回所有数据
@@ -1918,6 +1922,7 @@ async def _load_report_context() -> dict:
                 "net_profit_cagr_3y": float(fi_row["3年复合增长率"]) if pd.notna(fi_row.get("3年复合增长率")) else None,
                 "eps": float(fi_row["最新EPS(元)"]) if pd.notna(fi_row.get("最新EPS(元)")) else None,
                 "eps_year": int(fi_row["最新EPS年度"]) if pd.notna(fi_row.get("最新EPS年度")) else None,
+                "latest_quarter_yoy_pct": float(fi_row["最新季度扣非同比(%)"]) if pd.notna(fi_row.get("最新季度扣非同比(%)")) else None,
             }
 
     # 读取申万行业

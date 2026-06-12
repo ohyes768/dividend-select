@@ -2,6 +2,7 @@
 财务指标获取器 - 逐只获取股票财务指标数据
 """
 import time
+from datetime import date
 from typing import Optional
 
 import akshare as ak
@@ -11,6 +12,12 @@ from ..utils.helpers import (
     DATA_DIR,
     setup_logger,
 )
+
+# 季度扣非同比的"本期"固定口径（akshare stock_financial_analysis_indicator
+# 实际返回到 2026Q1）。选择"全市场固定季度"而非"每只股票最新季度"，
+# 是为了让前端展示口径一致（2026Q1 vs 2025Q1 同比）。
+QUARTERLY_YOY_REPORT_DATE = date(2026, 3, 31)  # 2026Q1
+QUARTERLY_YOY_BASE_DATE = date(2025, 3, 31)    # 2025Q1（去年同期）
 
 logger = setup_logger(__name__)
 
@@ -65,6 +72,10 @@ class FinancialFetcher:
             # 计算最近一期年报的 EPS（摊薄每股收益），用于后续计算分红比例
             eps_metrics = self._calc_latest_eps(df)
             result.update(eps_metrics)
+
+            # 计算 2026Q1 vs 2025Q1 扣非同比（前端 hover tooltip 用）
+            quarterly_metrics = self._calc_quarterly_yoy(df)
+            result.update(quarterly_metrics)
 
             # 添加数据季度
             from ..api.helpers.aux_data import current_quarter
@@ -191,6 +202,45 @@ class FinancialFetcher:
         return {
             "最新EPS年度": year,
             "最新EPS(元)": self._safe_float(latest.get("加权每股收益(元)")),
+        }
+
+    def _calc_quarterly_yoy(self, df: pd.DataFrame) -> dict:
+        """
+        计算固定季度（2026Q1 vs 2025Q1）的扣非净利润同比
+
+        固定取全市场 2026Q1 口径（QUARTERLY_YOY_REPORT_DATE = 2026-03-31），
+        让前端展示口径一致。新股或未发布该季报的股票返回 None。
+
+        Args:
+            df: 财务指标 DataFrame（已按日期降序排列）
+
+        Returns:
+            {
+                "最新季度扣非(元)": float 或 None,         # 2026Q1 扣非绝对值
+                "最新季度扣非同比(%)": float 或 None,      # (2026Q1-2025Q1) / abs(2025Q1) * 100
+            }
+        """
+        col = "扣除非经常性损益后的净利润(元)"
+        dates = pd.to_datetime(df["日期"]).dt.date
+        report_row = df[dates == QUARTERLY_YOY_REPORT_DATE]
+        base_row = df[dates == QUARTERLY_YOY_BASE_DATE]
+
+        if report_row.empty:
+            return {"最新季度扣非(元)": None, "最新季度扣非同比(%)": None}
+
+        report_value = self._safe_float(report_row.iloc[0][col])
+
+        if base_row.empty:
+            return {"最新季度扣非(元)": report_value, "最新季度扣非同比(%)": None}
+
+        base_value = self._safe_float(base_row.iloc[0][col])
+        if base_value is None or base_value == 0 or report_value is None:
+            return {"最新季度扣非(元)": report_value, "最新季度扣非同比(%)": None}
+
+        yoy = (report_value - base_value) / abs(base_value) * 100
+        return {
+            "最新季度扣非(元)": report_value,
+            "最新季度扣非同比(%)": round(yoy, 2),
         }
 
     def _calc_growth_metrics(self, df: pd.DataFrame) -> dict:
