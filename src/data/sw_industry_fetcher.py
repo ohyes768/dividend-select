@@ -77,14 +77,20 @@ class SwIndustryFetcher:
 
         logger.info("开始从问财 API 获取申万行业数据...")
 
-        result = pywencai.get(
-            query="股票代码,股票简称,所属申万行业",
-            cookie=self.cookie,
-            loop=True,
-            perpage=100,
-            sleep=1,
-            log=False,
-        )
+        try:
+            result = pywencai.get(
+                query="股票代码,股票简称,所属申万行业",
+                cookie=self.cookie,
+                loop=True,
+                perpage=100,
+                sleep=1,
+                log=True,
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"问财 API 请求失败: {e}。"
+                "可能原因：1) PYWENCAI_COOKIE 失效或未配置 2) 容器网络不通 iwencai.com"
+            ) from e
 
         if result is None:
             raise RuntimeError("问财 API 返回空数据")
