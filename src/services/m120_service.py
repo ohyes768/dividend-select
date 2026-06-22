@@ -19,6 +19,7 @@ from pydantic import validate_call
 from src.utils.config import AppConfig, PROJECT_ROOT
 from src.utils.logger import setup_logger
 from src.utils.helpers import get_current_date_dir, DATA_DIR
+from src.services.base import CsvPathService, current_week_suffix
 
 logger = setup_logger(__name__)
 
@@ -49,7 +50,7 @@ def set_rate_limited():
     logger.warning("=" * 50)
 
 
-class M120Service:
+class M120Service(CsvPathService):
     """
     M120 服务类
 
@@ -59,11 +60,10 @@ class M120Service:
     3. 使用 comrms 批量获取实时价格
     4. M120 数据和实时价格分开存储
     5. 读取时实时计算偏离度
-    """
 
-    # 数据文件路径
-    M120_CSV_FILE = None  # M120均线.csv
-    REALTIME_PRICE_CSV_FILE = None  # 实时价格.csv
+    路径属性（M120_CSV_FILE / REALTIME_PRICE_CSV_FILE）继承自 CsvPathService，
+    每次访问都按 datetime.now() 重算，跨周自动指向新文件，避免"启动时快照"问题。
+    """
 
     @validate_call
     def __init__(self, date_str: str | None = None):
@@ -71,23 +71,36 @@ class M120Service:
         初始化 M120 服务
 
         Args:
-            date_str: 日期字符串（YYYY-MM格式），None则使用当前日期
+            date_str: 日期字符串（YYYY-MM格式），None则使用当前日期。
+                     仅用于测试或历史回放场景；生产应传 None 走实时。
         """
-        self.date_str = date_str
-        self._ensure_data_dir()
+        super().__init__(date_str=date_str)
 
-    def _ensure_data_dir(self) -> None:
-        """确保数据目录存在"""
-        if self.M120_CSV_FILE is None:
-            date_str = self.date_str if self.date_str else get_current_date_dir()
-            # 计算本周日期范围后缀 (周一-周日)
-            today = datetime.now()
-            monday = today - timedelta(days=today.weekday())
-            sunday = monday + timedelta(days=6)
-            week_suffix = f"{monday.strftime('%m-%d')}-{sunday.strftime('%m-%d')}"
-            self.M120_CSV_FILE = DATA_DIR / date_str / f"M120均线_{week_suffix}.csv"
-            self.REALTIME_PRICE_CSV_FILE = DATA_DIR / date_str / "实时价格.csv"
-        self.M120_CSV_FILE.parent.mkdir(parents=True, exist_ok=True)
+    @property
+    def M120_CSV_FILE(self) -> Path:
+        """
+        M120 均线 CSV 路径（周度后缀）。
+
+        动态计算 datetime.now() → 当前周 周一到周日 后缀，
+        跨周日后自动指向新文件，不再卡在启动瞬间的 week_suffix。
+        """
+        date_str = self._resolve_date_str()
+        path = DATA_DIR / date_str / f"M120均线_{current_week_suffix()}.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @property
+    def REALTIME_PRICE_CSV_FILE(self) -> Path:
+        """
+        实时价格 CSV 路径（无日期后缀，月内复用同一文件）。
+
+        跟 M120_CSV_FILE 同样按 datetime.now() 重算，但实时价格当天内
+        会多次刷新，无需按周分文件。
+        """
+        date_str = self._resolve_date_str()
+        path = DATA_DIR / date_str / "实时价格.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
 
     def _get_stock_code_with_prefix(self, code: str) -> str:
         """
@@ -277,10 +290,6 @@ class M120Service:
         Returns:
             成功更新的数量
         """
-        # 确保文件路径已初始化
-        if self.REALTIME_PRICE_CSV_FILE is None:
-            self._ensure_data_dir()
-
         logger.info(f"开始批量获取 {len(codes)} 只股票的实时价格...")
 
         # 分批获取
@@ -331,9 +340,6 @@ class M120Service:
         """
         global _consecutive_failures
 
-        # 确保文件路径已初始化
-        if self.M120_CSV_FILE is None:
-            self._ensure_data_dir()
 
         results = []
         total = len(codes)
@@ -399,9 +405,6 @@ class M120Service:
         Returns:
             {股票代码: {"m120": float, "close": float, "deviation": float}} 字典
         """
-        # 确保文件路径已初始化
-        if self.M120_CSV_FILE is None or self.REALTIME_PRICE_CSV_FILE is None:
-            self._ensure_data_dir()
 
         # 读取 M120 数据
         if not self.M120_CSV_FILE.exists():
@@ -478,9 +481,6 @@ class M120Service:
         Returns:
             {股票代码: {"m120": float}} 字典
         """
-        # 确保文件路径已初始化
-        if self.M120_CSV_FILE is None:
-            self._ensure_data_dir()
 
         if not self.M120_CSV_FILE.exists():
             logger.warning(f"M120 数据文件不存在: {self.M120_CSV_FILE}")
@@ -501,28 +501,20 @@ class M120Service:
 
     def get_m120_file_mtime(self) -> Optional[float]:
         """获取 M120 数据文件的修改时间"""
-        if self.M120_CSV_FILE is None:
-            self._ensure_data_dir()
         if self.M120_CSV_FILE.exists():
             return self.M120_CSV_FILE.stat().st_mtime
         return None
 
     def get_realtime_price_file_mtime(self) -> Optional[float]:
         """获取实时价格数据文件的修改时间"""
-        if self.REALTIME_PRICE_CSV_FILE is None:
-            self._ensure_data_dir()
         if self.REALTIME_PRICE_CSV_FILE.exists():
             return self.REALTIME_PRICE_CSV_FILE.stat().st_mtime
         return None
 
     def check_m120_file_exists(self) -> bool:
         """检查 M120 数据文件是否存在"""
-        if self.M120_CSV_FILE is None:
-            self._ensure_data_dir()
         return self.M120_CSV_FILE.exists()
 
     def check_realtime_price_file_exists(self) -> bool:
         """检查实时价格数据文件是否存在"""
-        if self.REALTIME_PRICE_CSV_FILE is None:
-            self._ensure_data_dir()
         return self.REALTIME_PRICE_CSV_FILE.exists()

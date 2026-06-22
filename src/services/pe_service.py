@@ -11,11 +11,12 @@ import pandas as pd
 
 from src.utils.helpers import DATA_DIR, get_date_path, get_current_date_dir
 from src.utils.logger import setup_logger
+from src.services.base import CsvPathService
 
 logger = setup_logger(__name__)
 
 
-class PEDataService:
+class PEDataService(CsvPathService):
     """
     PE 数据获取服务
 
@@ -23,27 +24,34 @@ class PEDataService:
     1. 从 akshare 获取股票 PE/PB 数据
     2. 将 PE/PB 数据存储到 CSV 文件
     3. 读取已存储的 PE/PB 数据
+
+    路径属性 PE_CSV_FILE 继承自 CsvPathService，
+    每次访问都按 datetime.now() 重算，跨月自动指向新文件，避免"启动时快照"问题。
     """
 
-    # PE 数据文件路径（使用日期目录）
-    PE_CSV_FILE = None  # 将在运行时设置
+    month_filename = "PE数据.csv"
 
     def __init__(self, date_str: str | None = None):
         """
         初始化 PE 服务
 
         Args:
-            date_str: 日期字符串（YYYY-MM格式），None则使用当前日期
+            date_str: 日期字符串（YYYY-MM格式），None则使用当前日期。
+                     仅用于测试或历史回放场景；生产应传 None 走实时。
         """
-        self.date_str = date_str
-        self._ensure_data_dir()
+        super().__init__(date_str=date_str)
 
-    def _ensure_data_dir(self) -> None:
-        """确保数据目录存在"""
-        if self.PE_CSV_FILE is None:
-            date_str = self.date_str if self.date_str else get_current_date_dir()
-            self.PE_CSV_FILE = DATA_DIR / date_str / "PE数据.csv"
-        self.PE_CSV_FILE.parent.mkdir(parents=True, exist_ok=True)
+    @property
+    def PE_CSV_FILE(self) -> Path:
+        """
+        PE 数据 CSV 路径（月度目录 + PE数据.csv）。
+
+        动态计算 datetime.now() → 当前月目录，跨月后自动指向新文件。
+        """
+        date_str = self._resolve_date_str()
+        path = DATA_DIR / date_str / self.month_filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
 
     def update_pe_data(self, codes: list[str] | None = None, show_progress: bool = True) -> int:
         """
@@ -123,10 +131,6 @@ class PEDataService:
         Returns:
             {股票代码: {"pe": float, "pb": float, "market_cap": float, "circulation_market_cap": float}} 字典
         """
-        # 确保文件路径已初始化
-        if self.PE_CSV_FILE is None:
-            self._ensure_data_dir()
-
         if not self.PE_CSV_FILE.exists():
             logger.warning(f"PE 数据文件不存在: {self.PE_CSV_FILE}")
             return {}
@@ -266,9 +270,6 @@ class PEDataService:
         Returns:
             文件是否存在
         """
-        # 确保文件路径已初始化
-        if self.PE_CSV_FILE is None:
-            self._ensure_data_dir()
         return self.PE_CSV_FILE.exists()
 
 

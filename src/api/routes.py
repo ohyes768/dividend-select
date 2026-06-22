@@ -653,9 +653,8 @@ async def get_m120_status(
     last_updated = None
 
     if file_exists:
-        m120_service._ensure_data_dir()
         m120_file = m120_service.M120_CSV_FILE
-        if m120_file and m120_file.exists():
+        if m120_file.exists():
             timestamp = m120_service.get_m120_file_mtime()
             if timestamp:
                 last_updated_dt = datetime.fromtimestamp(timestamp)
