@@ -43,11 +43,11 @@ kami_data.json
 failed_stocks.txt
 dividend_export_*.csv
 
-# 运行时数据
+# 运行时数据 / 爬取快照（不应进 git，由脚本运行时重新生成）
 data/snapshots/
-data/2026-04/
-data/2026-05/
-data/2026-06/
+data/2026-*/
+data/*.csv
+data/**/*.csv
 
 # 本地配置
 .env.local
