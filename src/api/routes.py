@@ -894,14 +894,18 @@ async def refresh_financial_data(
             df = filter_service.filter_by_3y_dividend(df, min_avg_yield=3.0)
             all_codes = df["股票代码"].astype(str).str.zfill(6).tolist()
 
-            # 读取已存在的财务数据
-            existing_codes: set[str] = set()
-            if financial_reader.check_exists():
-                fi_df = financial_reader.read_csv()
-                if not fi_df.empty:
-                    existing_codes = set(fi_df["股票代码"].astype(str).str.zfill(6).tolist())
+            if force:
+                # 强制刷新：跳过增量过滤，全量重拉（修复数据 bug / 季度切换后纠正用）
+                codes = all_codes
+            else:
+                # 增量刷新：只刷缺失的股票
+                existing_codes: set[str] = set()
+                if financial_reader.check_exists():
+                    fi_df = financial_reader.read_csv()
+                    if not fi_df.empty:
+                        existing_codes = set(fi_df["股票代码"].astype(str).str.zfill(6).tolist())
 
-            codes = [c for c in all_codes if c not in existing_codes]
+                codes = [c for c in all_codes if c not in existing_codes]
 
         logger.info(f"开始刷新财务指标数据，共 {len(codes)} 只股票")
 
@@ -919,6 +923,10 @@ async def refresh_financial_data(
 
         def on_batch(df_batch: pd.DataFrame):
             nonlocal existing_df
+            # 强制刷新：去掉本批新 code 对应的旧行，避免一只股票 2 行
+            if force and not existing_df.empty and "股票代码" in existing_df.columns:
+                new_codes = set(df_batch["股票代码"].astype(str).str.zfill(6))
+                existing_df = existing_df[~existing_df["股票代码"].astype(str).str.zfill(6).isin(new_codes)]
             existing_df = pd.concat([existing_df, df_batch], ignore_index=True)
             write_path.parent.mkdir(parents=True, exist_ok=True)
             existing_df.to_csv(write_path, index=False, encoding="utf-8-sig")
