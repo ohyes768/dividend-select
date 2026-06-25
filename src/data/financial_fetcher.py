@@ -51,9 +51,12 @@ class FinancialFetcher:
                 logger.debug(f"获取 {code} 财务指标失败：无数据")
                 return None
 
-            # 按日期降序排列
-            df = df.sort_values("日期", ascending=False)
-            latest = df.iloc[0]
+            # 只取 12-31 年报（akshare 同一接口同时返回季报+年报，避免拿到 Q1 单季 ROE）
+            year_end_df = df[df["日期"].astype(str).str.contains("12-31")].sort_values("日期", ascending=False)
+            if year_end_df.empty:
+                logger.debug(f"获取 {code} 财务指标失败：无年报数据")
+                return None
+            latest = year_end_df.iloc[0]
 
             # 提取关键指标
             result = {
