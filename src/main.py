@@ -24,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes import router, set_services
 from src.services.data_reader import DataReader
+from src.services.favorites_service import FavoritesService
 from src.services.filter_service import FilterService
 from src.services.m120_service import M120Service
 from src.services.pe_service import PEDataService
@@ -63,10 +64,11 @@ async def lifespan(app: FastAPI):
     pe_service = PEDataService()
     shareholder_reader = ShareholderReader()
     financial_reader = FinancialReader()
+    favorites_service = FavoritesService.get_instance()
 
     # 设置服务到路由
     set_services(data_reader, filter_service, sort_service, m120_service, pe_service,
-                 shareholder_reader, financial_reader)
+                 shareholder_reader, financial_reader, favorites_service)
 
     # 检查数据文件
     if data_reader.check_csv_exists():
@@ -101,6 +103,10 @@ async def lifespan(app: FastAPI):
         logger.info(f"财务指标数据文件已存在，共 {fi_count} 条记录")
     else:
         logger.info("财务指标数据文件不存在，请运行 financial_fetcher.py 获取数据")
+
+    # 收藏服务
+    fav_count = len(favorites_service.get_all()["codes"])
+    logger.info(f"收藏服务就绪，当前 {fav_count} 只收藏")
 
     yield
 

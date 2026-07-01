@@ -334,3 +334,35 @@ class BoardInfoResponse(BaseModel):
     total: int = Field(..., description="总记录数")
     items: list[BoardInfo] = Field(..., description="板块信息列表")
     last_updated: Optional[str] = Field(None, description="数据最后更新时间")
+
+
+# ========== 收藏相关模型 ==========
+
+
+class FavoriteItem(BaseModel):
+    """单条收藏"""
+    code: str = Field(..., description="6 位股票代码")
+    added_at: str = Field(..., description="添加时间 (ISO 8601)")
+    note: Optional[str] = Field(None, description="用户备注")
+
+
+class FavoritesNotify(BaseModel):
+    """通知元数据（v1 仅占位，enabled 必须为 false）"""
+    enabled: bool = Field(False, description="是否启用通知")
+    rules: list = Field(default_factory=list, description="通知规则列表（v1 不读）")
+    last_notified_at: Optional[str] = Field(None, description="上次通知时间 (ISO 8601)")
+
+
+class FavoritesResponse(BaseModel):
+    """完整收藏响应"""
+    version: int = Field(..., description="schema 版本")
+    updated_at: str = Field(..., description="最后更新时间 (ISO 8601)")
+    total: int = Field(..., description="收藏总数")
+    codes: list[str] = Field(..., description="股票代码列表（去重）")
+    items: list[FavoriteItem] = Field(..., description="收藏详情列表")
+    notify: FavoritesNotify = Field(..., description="通知配置")
+
+
+class FavoriteNoteRequest(BaseModel):
+    """备注更新请求"""
+    note: Optional[str] = Field(None, description="新备注，null/空串=清空", max_length=200)

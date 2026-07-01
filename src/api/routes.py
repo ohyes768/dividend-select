@@ -11,6 +11,10 @@ from src.api.models import (
     BoardInfo,
     BoardInfoResponse,
     DividendStock,
+    FavoriteItem,
+    FavoriteNoteRequest,
+    FavoritesNotify,
+    FavoritesResponse,
     HealthResponse,
     M120ListResponse,
     M120Stock,
@@ -32,6 +36,7 @@ from src.api.models import (
     CodesRequest,
 )
 from src.services.data_reader import DataReader
+from src.services.favorites_service import FavoritesService
 from src.services.filter_service import FilterService
 from src.services.m120_service import M120Service
 from src.services.pe_service import PEDataService
@@ -94,6 +99,7 @@ pe_service: PEDataService | None = None
 stock_info_service: object | None = None
 shareholder_reader: ShareholderReader | None = None
 financial_reader: FinancialReader | None = None
+favorites_service: FavoritesService | None = None
 
 
 def set_services(
@@ -103,7 +109,8 @@ def set_services(
     m120: M120Service,
     pe: PEDataService,
     sh_reader: ShareholderReader | None = None,
-    fi_reader: FinancialReader | None = None
+    fi_reader: FinancialReader | None = None,
+    fav: FavoritesService | None = None,
 ):
     """
     设置服务实例
@@ -116,9 +123,10 @@ def set_services(
         pe: PE 数据服务
         sh_reader: 股东户数读取服务
         fi_reader: 财务指标读取服务
+        fav: 收藏服务
     """
     global data_reader, filter_service, sort_service, m120_service, pe_service, stock_info_service
-    global shareholder_reader, financial_reader
+    global shareholder_reader, financial_reader, favorites_service
     data_reader = reader
     filter_service = filterer
     sort_service = sorter
@@ -127,6 +135,7 @@ def set_services(
     stock_info_service = get_stock_info_service(data_reader)
     shareholder_reader = sh_reader
     financial_reader = fi_reader
+    favorites_service = fav
 
 
 def _row_to_stock_model(row: pd.Series, info: Optional[dict] = None,
@@ -2951,3 +2960,64 @@ def _render_carousel_html(top_curr, top_3y, top_curr_bars, total_stocks, today_s
 <script>{CAROUSEL_JS}</script>
 </body>
 </html>"""
+
+
+# ========== 收藏相关路由 ==========
+
+
+def _to_favorites_response(data: dict) -> FavoritesResponse:
+    """dict → FavoritesResponse（service 层返回 dict，路由层组装 Pydantic）"""
+    return FavoritesResponse(
+        version=data["version"],
+        updated_at=data["updated_at"],
+        total=len(data["codes"]),
+        codes=data["codes"],
+        items=[FavoriteItem(**item) for item in data["items"]],
+        notify=FavoritesNotify(**data["notify"]),
+    )
+
+
+@router.get("/favorites", response_model=FavoritesResponse)
+async def get_favorites():
+    """获取完整收藏列表"""
+    if favorites_service is None:
+        raise HTTPException(status_code=500, detail="收藏服务未初始化")
+    return _to_favorites_response(favorites_service.get_all())
+
+
+@router.post("/favorites/{code}", response_model=FavoritesResponse)
+async def add_favorite(code: str):
+    """添加一只股票到收藏（幂等：已存在直接返回当前列表）"""
+    if favorites_service is None:
+        raise HTTPException(status_code=500, detail="收藏服务未初始化")
+    try:
+        data = favorites_service.add(code)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _to_favorites_response(data)
+
+
+@router.delete("/favorites/{code}", response_model=FavoritesResponse)
+async def remove_favorite(code: str):
+    """从收藏中移除（幂等：不存在直接返回当前列表）"""
+    if favorites_service is None:
+        raise HTTPException(status_code=500, detail="收藏服务未初始化")
+    try:
+        data = favorites_service.remove(code)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _to_favorites_response(data)
+
+
+@router.put("/favorites/{code}/note", response_model=FavoriteItem)
+async def update_favorite_note(code: str, body: FavoriteNoteRequest):
+    """更新单条收藏的备注（code 不在收藏中返回 404）"""
+    if favorites_service is None:
+        raise HTTPException(status_code=500, detail="收藏服务未初始化")
+    try:
+        item = favorites_service.update_note(code, body.note)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"{code} 不在收藏中")
+    return FavoriteItem(**item)
