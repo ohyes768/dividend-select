@@ -275,6 +275,17 @@ class StockInfoResponse(BaseModel):
 # ========== 股息率刷新相关模型 ==========
 
 
+class IndexRefreshItem(BaseModel):
+    """
+    单个红利指数持仓刷新状态（用于全量刷新后展示每个指数的成败）
+    """
+    code: str = Field(..., description="指数代码，如 000922")
+    name: str = Field("", description="指数名称，如 中证红利")
+    success: bool = Field(..., description="是否成功")
+    constituents_count: int = Field(0, description="成分股数量")
+    error: Optional[str] = Field(None, description="失败原因（success=True 时为 None）")
+
+
 class RefreshStats(BaseModel):
     """
     刷新统计信息模型
@@ -289,6 +300,9 @@ class RefreshStats(BaseModel):
     file_path: str = Field(..., description="文件路径")
     start_time: str = Field(..., description="开始时间 (ISO 8601)")
     end_time: str = Field(..., description="结束时间 (ISO 8601)")
+    index_results: Optional[list[IndexRefreshItem]] = Field(
+        None, description="各红利指数持仓刷新状态（仅 /dividend/refresh 返回）"
+    )
 
 
 class RefreshRequest(BaseModel):
@@ -303,6 +317,13 @@ class CodesRequest(BaseModel):
     股票代码列表请求模型（用于刷新接口）
     """
     codes: list[str] = Field(..., description="股票代码列表", min_length=1)
+
+
+class IndexRefreshRequest(BaseModel):
+    """
+    单指数持仓刷新请求模型（用于 /dividend/index-holdings/refresh）
+    """
+    code: str = Field(..., description="红利指数代码，如 000922")
 
 
 class RefreshResponse(BaseModel):

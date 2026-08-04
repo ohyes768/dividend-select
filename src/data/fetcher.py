@@ -37,11 +37,24 @@ USER_AGENTS = [
 
 
 # 红利指数配置
+# 接口：ak.index_stock_cons_weight_csindex(symbol=)（中证指数公司）
 DIVIDEND_INDEXES = {
     "000922": "中证红利",
     "932315": "中证红利质量",
     "932309": "红利增长",
     "931468": "红利质量",
+    # 跨交易所扩展（同接口可用）
+    "000015": "上证红利",        # 上交所，50 只
+    # TODO 名称待确认（原 000824 是"中证国企红利"，换成 000825 后名称可能不同）
+    "000825": "中证国企红利",
+}
+
+# 走另一个 akshare 接口（ak.index_stock_cons）的指数
+# 深交所/国证系列，csindex 接口拿不到
+ALT_API_INDEXES = {
+    "399324": "深证红利",        # 深交所，40 只
+    # TODO 名称待确认（原 H30269 是"红利低波100"，换成 H30089 后名称可能不同）
+    "H30089": "红利低波100",     # H 开头=国证系列，走 ak.index_stock_cons
 }
 
 
@@ -62,6 +75,10 @@ class IndexHoldingsFetcher:
         self._fhps_fetcher = fhps_fetcher
         self.holdings_file = DATA_DIR / "红利指数持仓汇总.csv"
         self.dividend_count_file = DATA_DIR / "股票分红次数汇总.csv"
+        # 最近一次 fetch_all_holdings 的逐指数状态（供 routes 层透传给前端徽章）
+        self.last_index_results: dict[str, dict] = {}
+        # fetch_index_holdings 最近一次失败的错误信息（上层读取用于徽章 tooltip）
+        self._last_fetch_error: Optional[str] = None
 
     def fetch_index_holdings(self, index_code: str) -> Optional[pd.DataFrame]:
         """
@@ -73,22 +90,40 @@ class IndexHoldingsFetcher:
         Returns:
             DataFrame with columns: 股票代码, 股票名称
         """
+        self._last_fetch_error = None  # 进入前清空，便于上层读取最近一次错误
         try:
             logger.info(f"获取指数 {index_code} 的持仓数据...")
 
-            # 使用akshare获取中证指数成分股
-            df = ak.index_stock_cons_weight_csindex(symbol=index_code)
+            if index_code in ALT_API_INDEXES:
+                # 深交所/国证系列，走 ak.index_stock_cons（无权重）
+                df = ak.index_stock_cons(symbol=index_code)
+                if df is not None and not df.empty:
+                    # 列名兼容：可能是 "品种代码"/"品种名称" 或 "成分券代码"/"成分券名称"
+                    df = df.rename(columns={
+                        "品种代码": "股票代码",
+                        "品种名称": "股票名称",
+                        "成分券代码": "股票代码",
+                        "成分券名称": "股票名称",
+                    })
+                    if "股票代码" in df.columns:
+                        return df[["股票代码", "股票名称"]]
+                    logger.warning(f"{index_code}: ak.index_stock_cons 返回未知列 {list(df.columns)}")
+                    return None
+            else:
+                # 中证系列，走 ak.index_stock_cons_weight_csindex（含权重）
+                df = ak.index_stock_cons_weight_csindex(symbol=index_code)
 
-            if df is not None and not df.empty:
-                # 标准化列名
-                df = df.rename(columns={
-                    "成分券代码": "股票代码",
-                    "成分券名称": "股票名称",
-                })
-                return df[["股票代码", "股票名称"]]
+                if df is not None and not df.empty:
+                    # 标准化列名
+                    df = df.rename(columns={
+                        "成分券代码": "股票代码",
+                        "成分券名称": "股票名称",
+                    })
+                    return df[["股票代码", "股票名称"]]
 
         except Exception as e:
             logger.error(f"获取指数 {index_code} 持仓失败: {e}")
+            self._last_fetch_error = str(e)
 
         return None
 
@@ -101,15 +136,32 @@ class IndexHoldingsFetcher:
         """
         all_holdings = []
 
-        for index_code, index_name in DIVIDEND_INDEXES.items():
+        # 合并所有指数（中证系列 + 深交所系列）
+        all_indexes = {**DIVIDEND_INDEXES, **ALT_API_INDEXES}
+        self.last_index_results = {}  # 每次全量刷新前清空
+        for index_code, index_name in all_indexes.items():
             df = self.fetch_index_holdings(index_code)
             if df is not None and not df.empty:
                 df["来源指数"] = index_name
                 df["来源指数代码"] = index_code
                 all_holdings.append(df)
                 logger.info(f"  {index_name}: {len(df)} 只成分股")
+                self.last_index_results[index_code] = {
+                    "code": index_code,
+                    "name": index_name,
+                    "success": True,
+                    "constituents_count": len(df),
+                    "error": None,
+                }
             else:
                 logger.warning(f"  {index_name}: 获取失败")
+                self.last_index_results[index_code] = {
+                    "code": index_code,
+                    "name": index_name,
+                    "success": False,
+                    "constituents_count": 0,
+                    "error": self._last_fetch_error or "未知错误",
+                }
             time.sleep(0.5)  # 避免请求过快
 
         if not all_holdings:
@@ -130,6 +182,74 @@ class IndexHoldingsFetcher:
         combined = combined[["交易所", "股票代码", "股票名称", "来源指数", "来源指数代码", "纳入指数数量"]]
 
         return combined
+
+    def replace_one_holdings(self, index_code: str, date_str: str | None = None) -> dict:
+        """
+        单指数刷新：拉新数据 → 替换汇总 CSV 该指数旧行 → 重算"纳入指数数量"+"交易所" → 写回
+
+        与 fetch_all_holdings 的区别：只拉一个指数，保留其他指数的现有成分股不动。
+        适用于"全量刷新后某指数失败 → 用户单独点徽章重试"场景。
+
+        Args:
+            index_code: 指数代码
+            date_str: 日期字符串（YYYY-MM），None 用当前月
+
+        Returns:
+            状态 dict（结构与 last_index_records 单条一致）：
+            {code, name, success, constituents_count, error}
+        """
+        from ..utils.helpers import get_current_date_dir, load_csv_data, save_csv_data
+
+        if date_str is None:
+            date_str = get_current_date_dir()
+
+        all_indexes = {**DIVIDEND_INDEXES, **ALT_API_INDEXES}
+        if index_code not in all_indexes:
+            return {
+                "code": index_code, "name": "", "success": False,
+                "constituents_count": 0, "error": f"未知指数代码 {index_code}",
+            }
+        index_name = all_indexes[index_code]
+
+        # 1. 拉新数据
+        df_new = self.fetch_index_holdings(index_code)
+        if df_new is None or df_new.empty:
+            return {
+                "code": index_code, "name": index_name, "success": False,
+                "constituents_count": 0,
+                "error": self._last_fetch_error or "拉取失败（akshare 返回空）",
+            }
+
+        df_new = df_new.copy()
+        df_new["来源指数"] = index_name
+        df_new["来源指数代码"] = index_code
+
+        # 2. 读现有汇总 CSV（load_csv_data 自带当月→历史 fallback）
+        existing = load_csv_data("红利指数持仓汇总.csv", date_str)
+        if existing is None or existing.empty:
+            # 当月没汇总 CSV → 只写该指数（其他指数等下次全量刷新）
+            combined = df_new
+            logger.info(f"  {index_name}: 当月无汇总 CSV，单指数初始化写入")
+        else:
+            # 删该指数旧行，append 新行（避免该指数的旧成分股残留）
+            existing = existing[existing["来源指数代码"] != index_code]
+            combined = pd.concat([existing, df_new], ignore_index=True)
+
+        # 3. 重算"纳入指数数量"和"交易所"（口径与 fetch_all_holdings 完全一致）
+        index_count = combined.groupby("股票代码").size().reset_index(name="纳入指数数量")
+        combined = combined.drop_duplicates(subset=["股票代码"])
+        combined = combined.merge(index_count, on="股票代码")
+        combined["交易所"] = combined["股票代码"].apply(get_exchange)
+        combined = combined[["交易所", "股票代码", "股票名称", "来源指数", "来源指数代码", "纳入指数数量"]]
+
+        # 4. 写回当月 CSV
+        save_csv_data(combined, "红利指数持仓汇总.csv", date_str)
+        logger.info(f"  {index_name}: 单指数刷新完成，{len(df_new)} 只成分股，汇总 CSV 共 {len(combined)} 行")
+
+        return {
+            "code": index_code, "name": index_name, "success": True,
+            "constituents_count": len(df_new), "error": None,
+        }
 
     def fetch_dividend_count(self, stock_code: str) -> int:
         """

@@ -41,6 +41,8 @@ from src.api.models import (
     RefreshResponse,
     RefreshStats,
     CodesRequest,
+    IndexRefreshItem,
+    IndexRefreshRequest,
 )
 from src.services.data_reader import DataReader
 from src.services.favorites_service import FavoritesService
@@ -1769,6 +1771,7 @@ async def refresh_dividend_data(request: RefreshRequest):
 
         if not stock_list:
             logger.error("获取股票列表失败，程序退出")
+            index_items = [IndexRefreshItem(**v) for v in fetcher.last_index_results.values()]
             return RefreshResponse(
                 success=False,
                 message="获取股票列表失败",
@@ -1779,6 +1782,7 @@ async def refresh_dividend_data(request: RefreshRequest):
                     file_path=f"data/{date_str}/{output_file}",
                     start_time=start_time.isoformat(),
                     end_time=datetime.now().isoformat(),
+                    index_results=index_items,
                 )
             )
 
@@ -1802,6 +1806,7 @@ async def refresh_dividend_data(request: RefreshRequest):
         if not stock_list:
             logger.info("所有股票已处理完成，无需重新计算")
             end_time = datetime.now()
+            index_items = [IndexRefreshItem(**v) for v in fetcher.last_index_results.values()]
             return RefreshResponse(
                 success=True,
                 message="所有股票已处理完成",
@@ -1816,6 +1821,7 @@ async def refresh_dividend_data(request: RefreshRequest):
                     file_path=f"data/{date_str}/{output_file}",
                     start_time=start_time.isoformat(),
                     end_time=end_time.isoformat(),
+                    index_results=index_items,
                 )
             )
 
@@ -1855,6 +1861,7 @@ async def refresh_dividend_data(request: RefreshRequest):
             f"成功={success_count}, 失败={failed_count}, 跳过={skipped_count}, 累计完成={completed_count}"
         )
 
+        index_items = [IndexRefreshItem(**v) for v in fetcher.last_index_results.values()]
         return RefreshResponse(
             success=True,
             message=f"刷新完成，成功更新 {success_count} 只股票",
@@ -1869,6 +1876,7 @@ async def refresh_dividend_data(request: RefreshRequest):
                 file_path=f"data/{date_str}/{output_file}",
                 start_time=start_time.isoformat(),
                 end_time=end_time.isoformat(),
+                index_results=index_items,
             )
         )
 
@@ -1885,6 +1893,59 @@ async def refresh_dividend_data(request: RefreshRequest):
     finally:
         _is_refreshing = False
         logger.debug("股息率刷新并发控制标志已清除")
+
+
+@router.post("/dividend/index-holdings/refresh", response_model=IndexRefreshItem)
+async def refresh_single_index_holdings(request: IndexRefreshRequest):
+    """
+    单指数刷新持仓 CSV（只刷持仓，不算股息率）
+
+    用例：全量刷新后某个指数失败 → 前端点徽章单独重试该指数。
+    复用 _is_refreshing 锁，与全量刷新互斥（避免并发写汇总 CSV）。
+
+    返回 IndexRefreshItem：{ code, name, success, constituents_count, error }
+    """
+    global _is_refreshing
+
+    if _is_refreshing:
+        logger.warning(f"单指数刷新请求被拒绝：已有刷新任务正在进行中 (code={request.code})")
+        raise HTTPException(
+            status_code=409,
+            detail="已有刷新任务正在进行中，请稍后再试"
+        )
+
+    _is_refreshing = True  # 必须在 try 之前设置，异常路径也保证能复位
+    try:
+        logger.info(f"单指数持仓刷新开始: code={request.code}")
+
+        from src.data import IndexHoldingsFetcher
+        fetcher = IndexHoldingsFetcher(use_local=False)
+        result = fetcher.replace_one_holdings(request.code)
+
+        if result["success"]:
+            logger.info(
+                f"单指数刷新成功: {result['name']} ({result['code']}) "
+                f"{result['constituents_count']} 只成分股"
+            )
+        else:
+            logger.warning(
+                f"单指数刷新失败: {result.get('name', '')} ({result['code']}) "
+                f"error={result.get('error')}"
+            )
+
+        return IndexRefreshItem(**result)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"单指数持仓刷新异常: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"单指数刷新失败: {str(e)}"
+        )
+    finally:
+        _is_refreshing = False
+        logger.debug("单指数刷新并发控制标志已清除")
 
 
 @router.post("/dividend/fhps/refresh")
