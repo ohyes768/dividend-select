@@ -1598,16 +1598,18 @@ async def get_dividend_status():
     获取股息率数据状态
 
     返回：
-    - needs_update: 是否需要更新（CSV行数 < 目标数）
+    - needs_update: 是否需要更新（CSV 行数 < 目标数，或持仓指数覆盖不全）
     - last_updated: 上次更新时间
     - file_exists: 文件是否存在
     - pending_count: 待完成数量（目标总数 - 已完成数）
     - target_count: 目标股票总数（红利指数持仓数）
     - completed_count: 已完成数（CSV行数）
     - failed_codes: 失败的股票代码列表（始终为空，简化逻辑）
+    - holdings_status: 持仓 CSV 覆盖度（指数数量是否齐全）
     """
     from datetime import datetime
     from src.utils.helpers import DATA_DIR, get_current_date_dir
+    from src.data.fetcher import DIVIDEND_INDEXES, ALT_API_INDEXES
 
     date_str = get_current_date_dir()  # YYYY-MM格式
     dividend_file = DATA_DIR / date_str / f"近3年股息率汇总_{date_str}.csv"
@@ -1623,6 +1625,31 @@ async def get_dividend_status():
             completed_count = len(pd.read_csv(dividend_file))
         except Exception:
             completed_count = 0
+
+    # 持仓 CSV 覆盖度：检查"红利指数持仓汇总"里实际拉到几个指数
+    # 单指数刷新（replace_one_holdings）会留下不完整持仓，需要靠这个判断让按钮可重刷
+    expected_index_codes = sorted(list(DIVIDEND_INDEXES.keys()) + list(ALT_API_INDEXES.keys()))
+    holdings_file = DATA_DIR / date_str / f"红利指数持仓汇总_{date_str}.csv"
+    actual_index_codes: list[str] = []
+    if holdings_file.exists():
+        try:
+            h_df = pd.read_csv(holdings_file)
+            if "来源指数代码" in h_df.columns:
+                actual_index_codes = sorted(
+                    h_df["来源指数代码"].dropna().astype(str).unique().tolist()
+                )
+        except Exception:
+            pass
+    missing_index_codes = [c for c in expected_index_codes if c not in actual_index_codes]
+    holdings_complete = len(actual_index_codes) >= len(expected_index_codes)
+    holdings_status = {
+        "expected_index_count": len(expected_index_codes),
+        "actual_index_count": len(actual_index_codes),
+        "expected_index_codes": expected_index_codes,
+        "actual_index_codes": actual_index_codes,
+        "missing_index_codes": missing_index_codes,
+        "holdings_complete": holdings_complete,
+    }
 
     # prefilter 是 target_count 唯一来源（refresh 入口写盘）。
     # 删 fallback 的原因：原 fallback 用「主板+历史分红>10次」会包含 2025 停分股票
@@ -1650,6 +1677,7 @@ async def get_dividend_status():
             "completed_count": completed_count,
             "failed_codes": [],
             "fhps": fhps_info,
+            "holdings_status": holdings_status,
         }
 
     # prefilter 存在 → 正常比对 completed vs target
@@ -1666,11 +1694,13 @@ async def get_dividend_status():
             "completed_count": completed_count,
             "failed_codes": [],
             "fhps": fhps_info,
+            "holdings_status": holdings_status,
         }
 
     # max(0, ...) 兜底：prefilter 后 target 可能 < completed（CSV 残留 1 只历史数据）
     pending_count = max(0, target_count - completed_count)
-    needs_update = completed_count < target_count
+    # needs_update 加持仓覆盖度判断：持仓不完整（如单指数刷新留下的残缺数据）也算待更新
+    needs_update = completed_count < target_count or not holdings_complete
 
     return {
         "needs_update": needs_update,
@@ -1681,6 +1711,7 @@ async def get_dividend_status():
         "completed_count": completed_count,
         "failed_codes": [],
         "fhps": fhps_info,
+        "holdings_status": holdings_status,
     }
 
 
