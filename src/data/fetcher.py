@@ -1,7 +1,9 @@
 """
 数据获取层 - 红利指数持仓获取
 """
+import platform
 import random
+import signal
 import time
 from collections import defaultdict
 from typing import Optional
@@ -23,6 +25,23 @@ from .models import StockBasicInfo
 from .fhps_fetcher import FHPSFetcher
 
 logger = setup_logger(__name__)
+
+# akshare 调用硬超时（秒）：akshare 内部 requests 默认 timeout=None，
+# 中证指数公司限流/挂掉时会无限等待。30 秒超时后 raise，让 replace_one_holdings
+# 返回 success=False，前端可标记红色失败状态（用户可继续重试或拉其他指数）
+AKSHARE_FETCH_TIMEOUT_SECONDS = 30
+# signal.alarm 仅在 Unix 上工作（Docker 部署是 Linux 有效），Windows 本地调试时跳过
+_USE_SIGNAL_TIMEOUT = platform.system() != "Windows"
+
+
+class AkshareFetchTimeout(Exception):
+    """akshare 调用超过 AKSHARE_FETCH_TIMEOUT_SECONDS 时抛出"""
+
+
+def _akshare_timeout_handler(signum, frame):
+    raise AkshareFetchTimeout(
+        f"akshare 调用超过 {AKSHARE_FETCH_TIMEOUT_SECONDS}s 超时"
+    )
 
 # 随机 User-Agent 列表
 USER_AGENTS = [
@@ -84,6 +103,9 @@ class IndexHoldingsFetcher:
         """
         获取单个指数的持仓成分股
 
+        akshare 内部 requests 默认 timeout=None，中证指数公司限流时会无限等。
+        用 signal.alarm 加 30 秒硬超时（仅 Unix/Docker 有效，Windows 本地调试时跳过）。
+
         Args:
             index_code: 指数代码
 
@@ -91,6 +113,13 @@ class IndexHoldingsFetcher:
             DataFrame with columns: 股票代码, 股票名称
         """
         self._last_fetch_error = None  # 进入前清空，便于上层读取最近一次错误
+
+        # 30 秒硬超时（仅 Unix 上生效）
+        old_handler = None
+        if _USE_SIGNAL_TIMEOUT:
+            old_handler = signal.signal(signal.SIGALRM, _akshare_timeout_handler)
+            signal.alarm(AKSHARE_FETCH_TIMEOUT_SECONDS)
+
         try:
             logger.info(f"获取指数 {index_code} 的持仓数据...")
 
@@ -121,9 +150,23 @@ class IndexHoldingsFetcher:
                     })
                     return df[["股票代码", "股票名称"]]
 
+        except AkshareFetchTimeout:
+            logger.warning(
+                f"获取指数 {index_code} 持仓超时 {AKSHARE_FETCH_TIMEOUT_SECONDS}s"
+                f"（akshare 内部 hang，上游接口可能限流）"
+            )
+            self._last_fetch_error = (
+                f"{AKSHARE_FETCH_TIMEOUT_SECONDS}s 超时（中证指数公司接口 hang）"
+            )
         except Exception as e:
             logger.error(f"获取指数 {index_code} 持仓失败: {e}")
             self._last_fetch_error = str(e)
+        finally:
+            # 无论成功还是异常，都取消 alarm 并恢复旧 handler
+            if _USE_SIGNAL_TIMEOUT:
+                signal.alarm(0)
+                if old_handler is not None:
+                    signal.signal(signal.SIGALRM, old_handler)
 
         return None
 

@@ -1628,15 +1628,17 @@ async def get_dividend_status():
 
     # 持仓 CSV 覆盖度：检查"红利指数持仓汇总"里实际拉到几个指数
     # 单指数刷新（replace_one_holdings）会留下不完整持仓，需要靠这个判断让按钮可重刷
+    # ⚠️ 必须 dtype={"来源指数代码": str}，否则 read_csv 会把 "000922" 推断成 int64 → 922，
+    # 前导 0 丢失，actual_index_codes 永远对不上 expected，前端永远显示「持仓缺失」
     expected_index_codes = sorted(list(DIVIDEND_INDEXES.keys()) + list(ALT_API_INDEXES.keys()))
     holdings_file = DATA_DIR / date_str / f"红利指数持仓汇总_{date_str}.csv"
     actual_index_codes: list[str] = []
     if holdings_file.exists():
         try:
-            h_df = pd.read_csv(holdings_file)
+            h_df = pd.read_csv(holdings_file, dtype={"来源指数代码": str})
             if "来源指数代码" in h_df.columns:
                 actual_index_codes = sorted(
-                    h_df["来源指数代码"].dropna().astype(str).unique().tolist()
+                    h_df["来源指数代码"].dropna().unique().tolist()
                 )
         except Exception:
             pass
