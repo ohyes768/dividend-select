@@ -48,6 +48,8 @@ data/snapshots/
 data/2026-*/
 data/*.csv
 data/**/*.csv
+data/alert_history.json
+data/.alert_history.json.corrupt-*
 
 # 本地配置
 .env.local

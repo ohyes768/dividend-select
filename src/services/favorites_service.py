@@ -23,19 +23,36 @@ class FavoritesService:
     """
     收藏股票服务（单例）
 
-    JSON schema (v1):
+    JSON schema (v1，items[*].alerts 为可选字段):
     {
         "version": 1,
         "updated_at": "2026-07-01T12:34:56.789012",
         "codes": ["000001", "600000"],
         "items": [
-            {"code": "000001", "added_at": "2026-06-15T08:00:00", "note": null}
+            {
+                "code": "000001",
+                "added_at": "2026-06-15T08:00:00",
+                "note": null,
+                "alerts": {                              # 可选，缺省视为未配置
+                    "enabled": true,
+                    "star_rating": 4,                     # 1-5，可选
+                    "strategy": "深度价值 + 净现金垫",     # 可选
+                    "doc_url": "https://...",              # 可选
+                    "analysis_date": "2026-07-22",         # 可选 YYYY-MM-DD
+                    "levels": {
+                        "heavy_position":  {"price": 30.0, "pe": 5.8},  # 🟢 重仓
+                        "add_position":    {"price": 35.0, "pe": 6.7},  # 🟡 加仓
+                        "reduce_position": {"price": 57.3, "pe": 11.0}, # 🟠 减仓
+                        "full_exit":       {"price": 67.7, "pe": 13.0}  # 🔴 全卖
+                    }
+                }
+            }
         ],
         "notify": {"enabled": false, "rules": [], "last_notified_at": null}
     }
 
-    未来扩展:
-        v2 接入通知时，调用 subscribe() / mark_notified() 即可，favorites.json 已是唯一真相源。
+    挡位监控由 AlertService（src/services/alert_service.py）负责，
+    本服务只管 alerts 字段的存取。
     """
 
     # 单例
@@ -161,21 +178,57 @@ class FavoritesService:
                     return dict(item)
             raise KeyError(f"{code} 不在收藏中")  # 理论上不应触发
 
-    # ========== v2 占位方法（通知功能接入时实现） ==========
+    # ========== 挡位配置（alerts）==========
 
-    def subscribe(self, code: str, rule: dict) -> dict:
+    def update_alerts(self, code: str, alerts: dict) -> dict:
         """
-        [v2] 为单只股票订阅一条通知规则。
-        当前 v1 调用直接 raise NotImplementedError。
-        """
-        raise NotImplementedError("通知功能尚未实现，v2 接入")
+        设置/更新单只股票的挡位配置（覆盖式）
 
-    def mark_notified(self, codes: list) -> None:
+        Args:
+            code: 6 位股票代码（必须在收藏中）
+            alerts: AlertConfig dict，结构见类 docstring
+
+        Returns:
+            更新后的完整 favorites 数据
+
+        Raises:
+            ValueError: code 格式不合法
+            KeyError: code 不在收藏中
         """
-        [v2] 标记一批股票已发送过通知，更新 notify.last_notified_at。
-        当前 v1 调用直接 raise NotImplementedError。
+        code = self._normalize_code(code)
+        with self._lock:
+            if code not in self._data["codes"]:
+                raise KeyError(f"{code} 不在收藏中")
+            for item in self._data["items"]:
+                if item["code"] == code:
+                    item["alerts"] = alerts
+                    break
+            self._data["updated_at"] = datetime.now().isoformat()
+            self._save()
+            return copy.deepcopy(self._data)
+
+    def clear_alerts(self, code: str) -> dict:
         """
-        raise NotImplementedError("通知功能尚未实现，v2 接入")
+        清除单只股票的挡位配置（幂等：未配置直接返回）
+
+        Returns:
+            更新后的完整 favorites 数据
+
+        Raises:
+            ValueError: code 格式不合法
+            KeyError: code 不在收藏中
+        """
+        code = self._normalize_code(code)
+        with self._lock:
+            if code not in self._data["codes"]:
+                raise KeyError(f"{code} 不在收藏中")
+            for item in self._data["items"]:
+                if item["code"] == code:
+                    item.pop("alerts", None)
+                    break
+            self._data["updated_at"] = datetime.now().isoformat()
+            self._save()
+            return copy.deepcopy(self._data)
 
     # ========== 内部方法 ==========
 

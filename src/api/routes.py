@@ -15,6 +15,13 @@ from src.api.models import (
     FavoriteNoteRequest,
     FavoritesNotify,
     FavoritesResponse,
+    AlertConfig,
+    AlertConfigRequest,
+    AlertLevels,
+    AlertLevel,
+    AlertStatusItem,
+    AlertStatusResponse,
+    AlertCheckResult,
     HealthResponse,
     M120ListResponse,
     M120Stock,
@@ -1227,10 +1234,28 @@ async def refresh_realtime_prices(body: CodesRequest):
         # 批量更新实时价格
         count = m120_service.update_realtime_prices(codes, show_progress=True)
 
+        # 刷新完股价后顺带跑一次挡位检查（每日 cron 调用此接口即可触发推送）
+        alert_summary: dict | None = None
+        try:
+            from src.services.alert_service import get_alert_service
+            alert_service = get_alert_service()
+            alert_summary = alert_service.check_all()
+            logger.info(
+                f"挡位检查完成: scanned={alert_summary['scanned']} "
+                f"triggered={len(alert_summary['triggered'])} pushed={alert_summary['pushed']}"
+            )
+        except RuntimeError:
+            # AlertService 未初始化（早期开发 / 测试环境），静默跳过
+            pass
+        except Exception as alert_err:
+            # 监控失败不影响股价刷新的主流程
+            logger.error(f"挡位检查异常（不影响股价刷新）: {alert_err}", exc_info=True)
+
         return {
             "success": True,
             "message": f"实时价格刷新完成，成功更新 {count} 只股票",
-            "count": count
+            "count": count,
+            "alerts": alert_summary,
         }
 
     except Exception as e:
@@ -3021,3 +3046,164 @@ async def update_favorite_note(code: str, body: FavoriteNoteRequest):
     except KeyError:
         raise HTTPException(status_code=404, detail=f"{code} 不在收藏中")
     return FavoriteItem(**item)
+
+
+# ========== 挡位监控（alerts）路由 ==========
+
+
+def _alert_config_to_dict(req: AlertConfigRequest) -> dict:
+    """AlertConfigRequest（Pydantic） → favorites.json alerts dict（纯 dict，便于 JSON 持久化）"""
+    levels_py = req.levels
+    levels_dict: dict[str, dict] = {}
+    for key in ("heavy_position", "add_position", "reduce_position", "full_exit"):
+        lv: AlertLevel | None = getattr(levels_py, key)
+        if lv is None or lv.price is None:
+            continue
+        levels_dict[key] = {"price": float(lv.price)}
+        if lv.pe is not None:
+            levels_dict[key]["pe"] = float(lv.pe)
+
+    return {
+        "enabled": bool(req.enabled),
+        "star_rating": req.star_rating,
+        "strategy": req.strategy,
+        "doc_url": req.doc_url,
+        "analysis_date": req.analysis_date,
+        "levels": levels_dict,
+    }
+
+
+@router.put("/favorites/{code}/alerts", response_model=FavoritesResponse)
+async def set_favorite_alerts(code: str, body: AlertConfigRequest):
+    """
+    设置/更新单只股票的挡位监控配置（覆盖式，须先收藏）
+
+    请求体示例：
+        {
+            "enabled": true,
+            "star_rating": 4,
+            "strategy": "深度价值 + 净现金垫",
+            "doc_url": "https://...",
+            "analysis_date": "2026-07-22",
+            "levels": {
+                "heavy_position":  {"price": 30.0, "pe": 5.8},
+                "add_position":    {"price": 35.0, "pe": 6.7},
+                "reduce_position": {"price": 57.3, "pe": 11.0},
+                "full_exit":       {"price": 67.7, "pe": 13.0}
+            }
+        }
+    """
+    if favorites_service is None:
+        raise HTTPException(status_code=500, detail="收藏服务未初始化")
+    try:
+        alerts_dict = _alert_config_to_dict(body)
+        data = favorites_service.update_alerts(code, alerts_dict)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"{code} 不在收藏中，请先加入收藏")
+    return _to_favorites_response(data)
+
+
+@router.delete("/favorites/{code}/alerts", response_model=FavoritesResponse)
+async def clear_favorite_alerts(code: str):
+    """清除单只股票的挡位配置（幂等）"""
+    if favorites_service is None:
+        raise HTTPException(status_code=500, detail="收藏服务未初始化")
+    try:
+        data = favorites_service.clear_alerts(code)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"{code} 不在收藏中")
+    return _to_favorites_response(data)
+
+
+@router.get("/favorites/alerts/status", response_model=AlertStatusResponse)
+async def get_alerts_status():
+    """
+    返回所有收藏股票的挡位配置 + 今日触发记录。
+
+    用于前端展示「挡位状态」列与今日是否触发。
+    """
+    if favorites_service is None:
+        raise HTTPException(status_code=500, detail="收藏服务未初始化")
+
+    try:
+        from src.services.alert_service import get_alert_service
+        alert_service = get_alert_service()
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    from src.services.dingtalk_notifier import DingTalkNotifier
+
+    data = favorites_service.get_all()
+    today_records = alert_service.get_today_records()
+    today_by_code: dict[str, list[str]] = {}
+    for r in today_records:
+        today_by_code.setdefault(r.get("code", ""), []).append(r.get("level_key", ""))
+
+    # 名称从 data_reader 拿（favorites items 没 name 字段）
+    name_map: dict[str, str] = {}
+    if data_reader is not None:
+        try:
+            for s in data_reader.get_all_stocks():
+                if isinstance(s, dict) and s.get("name"):
+                    name_map[str(s.get("code", "")).zfill(6)] = s["name"]
+        except Exception:
+            pass
+
+    items: list[AlertStatusItem] = []
+    enabled_count = 0
+    for fav_item in data["items"]:
+        alerts = fav_item.get("alerts")
+        levels_dict = (alerts or {}).get("levels") or {}
+        level_count = sum(1 for v in levels_dict.values() if v and v.get("price"))
+        if alerts and alerts.get("enabled"):
+            enabled_count += 1
+
+        items.append(
+            AlertStatusItem(
+                code=fav_item["code"],
+                name=name_map.get(fav_item["code"]),
+                enabled=bool(alerts and alerts.get("enabled")),
+                has_levels=level_count > 0,
+                level_count=level_count,
+                star_rating=alerts.get("star_rating") if alerts else None,
+                strategy=alerts.get("strategy") if alerts else None,
+                levels=AlertLevels(
+                    **{
+                        k: AlertLevel(price=v["price"], pe=v.get("pe"))
+                        for k, v in levels_dict.items()
+                        if v and v.get("price")
+                    }
+                ) if levels_dict else None,
+                triggered_today=today_by_code.get(fav_item["code"], []),
+            )
+        )
+
+    return AlertStatusResponse(
+        total=len(data.get("codes", [])),
+        enabled_count=enabled_count,
+        triggered_today_count=len(today_records),
+        dingtalk_configured=DingTalkNotifier().is_configured(),
+        items=items,
+    )
+
+
+@router.post("/favorites/alerts/check", response_model=AlertCheckResult)
+async def manually_check_alerts():
+    """
+    手动触发一次挡位检查（通常由前端"测试推送"按钮调用）。
+
+    跟随 realtime/refresh 后自动触发的逻辑一致：扫所有收藏的 alerts，
+    比对现价，触发写历史 + 推钉钉。
+    """
+    try:
+        from src.services.alert_service import get_alert_service
+        alert_service = get_alert_service()
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    result = alert_service.check_all()
+    return AlertCheckResult(**result)

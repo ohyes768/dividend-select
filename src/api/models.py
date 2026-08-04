@@ -339,17 +339,42 @@ class BoardInfoResponse(BaseModel):
 # ========== 收藏相关模型 ==========
 
 
+class AlertLevel(BaseModel):
+    """单档挡位（价格必填，PE 选填仅作推送展示）"""
+    price: float = Field(..., description="挡位价格（元）", gt=0)
+    pe: Optional[float] = Field(None, description="对应挡位 PE（选填，仅推送时展示）")
+
+
+class AlertLevels(BaseModel):
+    """4 档挡位配置"""
+    heavy_position: Optional[AlertLevel] = Field(None, description="🟢 重仓档（买入最深）")
+    add_position: Optional[AlertLevel] = Field(None, description="🟡 加仓档")
+    reduce_position: Optional[AlertLevel] = Field(None, description="🟠 减仓档")
+    full_exit: Optional[AlertLevel] = Field(None, description="🔴 全卖档（卖出最深）")
+
+
+class AlertConfig(BaseModel):
+    """单只股票的挡位监控配置"""
+    enabled: bool = Field(False, description="是否启用监控")
+    star_rating: Optional[int] = Field(None, description="星级评分 1-5（选填）", ge=0, le=5)
+    strategy: Optional[str] = Field(None, description="投资策略摘要（选填）", max_length=500)
+    doc_url: Optional[str] = Field(None, description="分析文档链接（选填）", max_length=500)
+    analysis_date: Optional[str] = Field(None, description="分析日期 YYYY-MM-DD（选填）")
+    levels: AlertLevels = Field(default_factory=AlertLevels, description="4 档价格配置")
+
+
 class FavoriteItem(BaseModel):
     """单条收藏"""
     code: str = Field(..., description="6 位股票代码")
     added_at: str = Field(..., description="添加时间 (ISO 8601)")
     note: Optional[str] = Field(None, description="用户备注")
+    alerts: Optional[AlertConfig] = Field(None, description="挡位监控配置（缺省视为未配置）")
 
 
 class FavoritesNotify(BaseModel):
-    """通知元数据（v1 仅占位，enabled 必须为 false）"""
+    """通知元数据"""
     enabled: bool = Field(False, description="是否启用通知")
-    rules: list = Field(default_factory=list, description="通知规则列表（v1 不读）")
+    rules: list = Field(default_factory=list, description="通知规则列表（兼容字段，当前由 alerts 替代）")
     last_notified_at: Optional[str] = Field(None, description="上次通知时间 (ISO 8601)")
 
 
@@ -366,3 +391,50 @@ class FavoritesResponse(BaseModel):
 class FavoriteNoteRequest(BaseModel):
     """备注更新请求"""
     note: Optional[str] = Field(None, description="新备注，null/空串=清空", max_length=200)
+
+
+class AlertConfigRequest(BaseModel):
+    """挡位配置更新请求"""
+    enabled: bool = Field(False, description="是否启用监控")
+    star_rating: Optional[int] = Field(None, ge=0, le=5)
+    strategy: Optional[str] = Field(None, max_length=500)
+    doc_url: Optional[str] = Field(None, max_length=500)
+    analysis_date: Optional[str] = Field(None)
+    levels: AlertLevels = Field(default_factory=AlertLevels)
+
+
+# ========== 挡位监控相关响应模型 ==========
+
+
+class AlertStatusItem(BaseModel):
+    """单只股票的挡位状态"""
+    code: str
+    name: Optional[str] = None
+    enabled: bool
+    has_levels: bool = Field(..., description="是否配置了至少 1 档价格")
+    level_count: int = Field(..., description="已配置档位数（0-4）")
+    star_rating: Optional[int] = None
+    strategy: Optional[str] = None
+    levels: Optional[AlertLevels] = None
+    triggered_today: list = Field(
+        default_factory=list,
+        description="今日此股触发的档位 key 列表",
+    )
+
+
+class AlertStatusResponse(BaseModel):
+    """所有收藏股票的挡位状态 + 今日触发汇总"""
+    total: int = Field(..., description="收藏总数")
+    enabled_count: int = Field(..., description="已启用监控的股票数")
+    triggered_today_count: int = Field(..., description="今日累计触发档位数")
+    dingtalk_configured: bool = Field(..., description="钉钉 webhook 是否已配置")
+    items: list[AlertStatusItem] = Field(default_factory=list)
+
+
+class AlertCheckResult(BaseModel):
+    """手动触发挡位检查的返回"""
+    checked_at: str
+    scanned: int
+    triggered: list[dict] = Field(default_factory=list)
+    pushed: bool
+    push_error: Optional[str] = None
