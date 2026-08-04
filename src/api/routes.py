@@ -1640,8 +1640,20 @@ async def get_dividend_status():
                 actual_index_codes = sorted(
                     h_df["来源指数代码"].dropna().unique().tolist()
                 )
-        except Exception:
-            pass
+                # DEBUG: 打印读到的东西，方便排查"刷新页面还是持仓缺失"问题
+                # 如果 actual 里出现 "922" 而非 "000922" → NAS 没部署新代码
+                logger.info(
+                    f"[holdings_status] 读 {holdings_file.name}: "
+                    f"actual={actual_index_codes}, "
+                    f"missing={[c for c in expected_index_codes if c not in actual_index_codes]}"
+                )
+            else:
+                logger.warning(
+                    f"[holdings_status] {holdings_file.name} 缺少「来源指数代码」列，"
+                    f"实际列: {list(h_df.columns)}"
+                )
+        except Exception as e:
+            logger.error(f"[holdings_status] 读 {holdings_file} 失败: {e}")
     missing_index_codes = [c for c in expected_index_codes if c not in actual_index_codes]
     holdings_complete = len(actual_index_codes) >= len(expected_index_codes)
     holdings_status = {
@@ -1948,22 +1960,25 @@ async def refresh_single_index_holdings(request: IndexRefreshRequest):
         )
 
     _is_refreshing = True  # 必须在 try 之前设置，异常路径也保证能复位
+    import time as _time
+    started_at = _time.time()
     try:
-        logger.info(f"单指数持仓刷新开始: code={request.code}")
+        logger.info(f"单指数持仓刷新开始: code={request.code}, ts={started_at}")
 
         from src.data import IndexHoldingsFetcher
         fetcher = IndexHoldingsFetcher(use_local=False)
         result = fetcher.replace_one_holdings(request.code)
 
+        elapsed = round(_time.time() - started_at, 2)
         if result["success"]:
             logger.info(
                 f"单指数刷新成功: {result['name']} ({result['code']}) "
-                f"{result['constituents_count']} 只成分股"
+                f"{result['constituents_count']} 只成分股, 耗时 {elapsed}s"
             )
         else:
             logger.warning(
                 f"单指数刷新失败: {result.get('name', '')} ({result['code']}) "
-                f"error={result.get('error')}"
+                f"error={result.get('error')}, 耗时 {elapsed}s"
             )
 
         return IndexRefreshItem(**result)

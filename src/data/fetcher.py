@@ -135,6 +135,7 @@ class IndexHoldingsFetcher:
                         "成分券名称": "股票名称",
                     })
                     if "股票代码" in df.columns:
+                        logger.info(f"获取指数 {index_code} 成功（ak.index_stock_cons）: {len(df)} 只成分股")
                         return df[["股票代码", "股票名称"]]
                     logger.warning(f"{index_code}: ak.index_stock_cons 返回未知列 {list(df.columns)}")
                     return None
@@ -148,7 +149,10 @@ class IndexHoldingsFetcher:
                         "成分券代码": "股票代码",
                         "成分券名称": "股票名称",
                     })
+                    logger.info(f"获取指数 {index_code} 成功（ak.index_stock_cons_weight_csindex）: {len(df)} 只成分股")
                     return df[["股票代码", "股票名称"]]
+                else:
+                    logger.warning(f"获取指数 {index_code}: akshare 返回空 DataFrame")
 
         except AkshareFetchTimeout:
             logger.warning(
