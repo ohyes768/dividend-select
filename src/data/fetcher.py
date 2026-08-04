@@ -238,6 +238,10 @@ class IndexHoldingsFetcher:
         # 3. 重算"纳入指数数量"和"交易所"（口径与 fetch_all_holdings 完全一致）
         index_count = combined.groupby("股票代码").size().reset_index(name="纳入指数数量")
         combined = combined.drop_duplicates(subset=["股票代码"])
+        # CSV 读来的 existing 自带老的"纳入指数数量"列，merge 同名列会被 pandas 改名成 _x/_y
+        # 导致最后按原名选列 KeyError，merge 前先 drop 掉
+        if "纳入指数数量" in combined.columns:
+            combined = combined.drop(columns=["纳入指数数量"])
         combined = combined.merge(index_count, on="股票代码")
         combined["交易所"] = combined["股票代码"].apply(get_exchange)
         combined = combined[["交易所", "股票代码", "股票名称", "来源指数", "来源指数代码", "纳入指数数量"]]
