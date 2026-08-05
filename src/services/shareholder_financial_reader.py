@@ -7,7 +7,7 @@ from typing import Optional
 import pandas as pd
 
 from ..api.helpers.aux_data import find_latest_aux_file
-from ..utils.helpers import DATA_DIR, setup_logger
+from ..utils.helpers import DATA_DIR, setup_logger, CODE_DTYPE
 
 logger = setup_logger(__name__)
 
@@ -37,7 +37,7 @@ class ShareholderReader:
             return pd.DataFrame()
 
         try:
-            df = pd.read_csv(filepath, encoding="utf-8-sig")
+            df = pd.read_csv(filepath, encoding="utf-8-sig", dtype=CODE_DTYPE)
             df["股票代码"] = df["股票代码"].astype(str).str.zfill(6)
             return df
         except Exception as e:
@@ -98,7 +98,7 @@ class FinancialReader:
             return pd.DataFrame()
 
         try:
-            df = pd.read_csv(filepath, encoding="utf-8-sig")
+            df = pd.read_csv(filepath, encoding="utf-8-sig", dtype=CODE_DTYPE)
             df["股票代码"] = df["股票代码"].astype(str).str.zfill(6)
             return df
         except Exception as e:

@@ -9,6 +9,7 @@ import pandas as pd
 
 from src.api.helpers.aux_data import find_latest_aux_file
 from src.utils.logger import setup_logger
+from src.utils.helpers import CODE_DTYPE
 
 logger = setup_logger(__name__)
 
@@ -39,7 +40,7 @@ class StockInfoService:
             return False
 
         try:
-            self._sw_df = pd.read_csv(sw_mapping_file, encoding="utf-8-sig")
+            self._sw_df = pd.read_csv(sw_mapping_file, encoding="utf-8-sig", dtype=CODE_DTYPE)
             # 处理股票代码格式 (001220.SZ -> 001220)
             self._sw_df["股票代码"] = self._sw_df["股票代码"].str.replace(r"\.(SZ|SH)$", "", regex=True)
             logger.info(f"申万行业映射加载成功: {len(self._sw_df)} 条 from {sw_mapping_file.name}")

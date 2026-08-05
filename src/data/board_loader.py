@@ -7,7 +7,7 @@ from typing import Optional
 import pandas as pd
 
 from ..api.helpers.aux_data import find_latest_aux_file
-from ..utils.helpers import setup_logger
+from ..utils.helpers import setup_logger, CODE_DTYPE
 from .models import BoardInfo
 
 logger = setup_logger(__name__)
@@ -43,7 +43,7 @@ class BoardInfoLoader:
             return False
 
         try:
-            self._board_df = pd.read_csv(self.board_mapping_file, encoding="utf-8-sig")
+            self._board_df = pd.read_csv(self.board_mapping_file, encoding="utf-8-sig", dtype=CODE_DTYPE)
             logger.info(f"板块映射加载成功: {len(self._board_df)} 条 from {self.board_mapping_file.name}")
             return True
         except Exception as e:
@@ -62,7 +62,7 @@ class BoardInfoLoader:
             return False
 
         try:
-            self._sw_df = pd.read_csv(self.sw_mapping_file, encoding="utf-8-sig")
+            self._sw_df = pd.read_csv(self.sw_mapping_file, encoding="utf-8-sig", dtype=CODE_DTYPE)
             # 处理股票代码格式 (001220.SZ -> 001220)
             self._sw_df["股票代码"] = self._sw_df["股票代码"].str.replace(r"\.(SZ|SH)$", "", regex=True)
             logger.info(f"申万行业映射加载成功: {len(self._sw_df)} 条 from {self.sw_mapping_file.name}")

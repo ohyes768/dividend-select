@@ -55,7 +55,7 @@ from src.services.stock_info_service import get_stock_info_service
 from src.services.shareholder_financial_reader import ShareholderReader, FinancialReader
 from src.services import weekly_comparison
 from src.data.financial_fetcher import FinancialFetcher
-from src.utils.helpers import save_csv_data, DATA_DIR
+from src.utils.helpers import save_csv_data, DATA_DIR, CODE_DTYPE
 from src.api.helpers.aux_data import (
     REFRESH_INTERVAL_DAYS,
     aux_file_path,
@@ -1350,7 +1350,7 @@ async def get_board_status():
     # 读取现有板块映射文件
     if path is not None and path.exists():
         try:
-            existing_df = pd.read_csv(path, encoding="utf-8-sig")
+            existing_df = pd.read_csv(path, encoding="utf-8-sig", dtype=CODE_DTYPE)
             existing_df["股票代码"] = existing_df["股票代码"].astype(str).str.zfill(6)
             existing_codes = set(existing_df["股票代码"].tolist())
             record_count = len(existing_df)
@@ -1410,7 +1410,7 @@ async def get_board_info(
         raise HTTPException(status_code=404, detail="板块数据文件不存在，请先调用 /board/refresh")
 
     try:
-        df = pd.read_csv(board_file, encoding="utf-8-sig")
+        df = pd.read_csv(board_file, encoding="utf-8-sig", dtype=CODE_DTYPE)
     except Exception as e:
         logger.error(f"读取板块数据失败: {e}")
         raise HTTPException(status_code=500, detail="读取板块数据失败")

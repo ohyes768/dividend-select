@@ -482,15 +482,15 @@ class DividendCalculator:
 
     def _load_dividend_detail_from_csv(self, code: str) -> Optional[pd.DataFrame]:
         """从本地CSV读取分红详情"""
-        from ..utils.helpers import load_csv_data
+        from ..utils.helpers import load_csv_data, CODE_DTYPE
         from ..utils.helpers import get_current_date_dir
 
         date_str = get_current_date_dir()
-        df = load_csv_data("分红详情.csv", date_str)
+        df = load_csv_data("分红详情.csv", date_str, dtype=CODE_DTYPE)
 
         if df is not None and not df.empty:
-            # 筛选指定股票（CSV中股票代码是int类型）
-            stock_df = df[df["股票代码"] == int(code.zfill(6))]
+            # 股票代码统一按 6 位字符串比较
+            stock_df = df[df["股票代码"].astype(str).str.zfill(6) == str(code).zfill(6)]
             if not stock_df.empty:
                 logger.info(f"从本地CSV加载 {code} 分红详情: {len(stock_df)} 条")
                 return stock_df
@@ -501,15 +501,16 @@ class DividendCalculator:
         if dividend_df is None or dividend_df.empty:
             return
 
-        from ..utils.helpers import append_csv_row, load_csv_data
+        from ..utils.helpers import append_csv_row, load_csv_data, CODE_DTYPE
         from datetime import datetime, timedelta
 
         # 先加载已有的分红详情，避免重复保存
-        existing_df = load_csv_data("分红详情.csv", date_str)
+        existing_df = load_csv_data("分红详情.csv", date_str, dtype=CODE_DTYPE)
         existing_keys = set()
         if existing_df is not None and not existing_df.empty:
             for _, row in existing_df.iterrows():
-                existing_keys.add((str(row["股票代码"]), str(row["除权除息日"])[:10]))
+                # 与下方去重比较的 code 保持同一形态（6 位字符串）
+                existing_keys.add((str(row["股票代码"]).zfill(6), str(row["除权除息日"])[:10]))
 
         # 只保存近5年的数据
         five_years_ago = datetime.now() - timedelta(days=365 * 5)

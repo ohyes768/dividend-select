@@ -14,6 +14,11 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 LOGS_DIR = PROJECT_ROOT / "logs"
 
+# 代码类列统一按 str 读取，避免 read_csv 推断成 int64 丢前导零（"000090" → 90）。
+# pandas 对 CSV 中不存在的列会静默忽略，故此常量可无差别用于所有 CSV。
+# 读 CSV 时一律传 dtype=CODE_DTYPE，不要依赖调用点事后 zfill 补偿。
+CODE_DTYPE = {"股票代码": str, "来源指数代码": str, "代码": str}
+
 
 def get_current_date_dir() -> str:
     """
@@ -195,7 +200,7 @@ def get_exchange(code) -> str:
         return "其他"
 
 
-def load_csv_data(filename: str, date_str: Optional[str] = None, dtype: Optional[dict] = None) -> Optional[pd.DataFrame]:
+def load_csv_data(filename: str, date_str: Optional[str] = None, dtype: Optional[dict] = CODE_DTYPE) -> Optional[pd.DataFrame]:
     """
     加载CSV数据文件
     自动添加日期后缀，优先从当前目录读取，不存在则从月度目录读取
@@ -204,8 +209,10 @@ def load_csv_data(filename: str, date_str: Optional[str] = None, dtype: Optional
         filename: 文件名（如：红利指数持仓汇总.csv）
         date_str: 日期字符串（YYYY-MM格式），None则使用当前月份
         dtype: 列名 → 数据类型的 dict，传给 pd.read_csv。
-              含前导 0 的 ID 列（如 "股票代码"、"来源指数代码"）应传 str，
-              避免 read_csv 推断成 int64 丢前导 0（如 "000922" → 922）。
+              默认 CODE_DTYPE，保证代码类列按 str 读取、不丢前导 0
+              （如 "000922" 被推断成 int64 的 922）。
+              pandas 会忽略 CSV 中不存在的列，故默认值对所有 CSV 都安全。
+              仅在确需其他类型时才覆盖；传 {} 可关闭。
 
     Returns:
         DataFrame数据，失败返回None
@@ -300,7 +307,7 @@ def append_csv_row(row_data: dict, filename: str, date_str: Optional[str] = None
 
         # 文件存在则追加，不存在则创建
         if filepath.exists():
-            df_existing = pd.read_csv(filepath, encoding="utf-8-sig")
+            df_existing = pd.read_csv(filepath, encoding="utf-8-sig", dtype=CODE_DTYPE)
             df_new = pd.DataFrame([row_data])
             df_combined = pd.concat([df_existing, df_new], ignore_index=True)
         else:
@@ -338,7 +345,7 @@ def load_existing_codes(filename: str, date_str: Optional[str] = None) -> set[st
         return set()
 
     try:
-        df = pd.read_csv(filepath, encoding="utf-8-sig")
+        df = pd.read_csv(filepath, encoding="utf-8-sig", dtype=CODE_DTYPE)
     except Exception:
         return set()
 

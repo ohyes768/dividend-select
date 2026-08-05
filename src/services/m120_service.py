@@ -18,7 +18,7 @@ from pydantic import validate_call
 
 from src.utils.config import AppConfig, PROJECT_ROOT
 from src.utils.logger import setup_logger
-from src.utils.helpers import get_current_date_dir, DATA_DIR
+from src.utils.helpers import get_current_date_dir, DATA_DIR, CODE_DTYPE
 from src.services.base import CsvPathService, current_week_suffix
 
 logger = setup_logger(__name__)
@@ -379,7 +379,7 @@ class M120Service(CsvPathService):
             existing_data = {}
             if self.M120_CSV_FILE.exists():
                 try:
-                    existing_df = pd.read_csv(self.M120_CSV_FILE, encoding="utf-8-sig")
+                    existing_df = pd.read_csv(self.M120_CSV_FILE, encoding="utf-8-sig", dtype=CODE_DTYPE)
                     for _, row in existing_df.iterrows():
                         code = str(row["股票代码"]).zfill(6)
                         existing_data[code] = {"日期": row["日期"], "股票代码": code, "M120": row["M120"]}
@@ -412,7 +412,7 @@ class M120Service(CsvPathService):
             return {}
 
         try:
-            m120_df = pd.read_csv(self.M120_CSV_FILE, encoding="utf-8-sig")
+            m120_df = pd.read_csv(self.M120_CSV_FILE, encoding="utf-8-sig", dtype=CODE_DTYPE)
         except Exception as e:
             logger.error(f"读取 M120 数据失败: {e}")
             return {}
@@ -421,7 +421,7 @@ class M120Service(CsvPathService):
         price_dict = {}
         if self.REALTIME_PRICE_CSV_FILE.exists():
             try:
-                price_df = pd.read_csv(self.REALTIME_PRICE_CSV_FILE, encoding="utf-8-sig")
+                price_df = pd.read_csv(self.REALTIME_PRICE_CSV_FILE, encoding="utf-8-sig", dtype=CODE_DTYPE)
                 for _, row in price_df.iterrows():
                     code = str(int(row["股票代码"])).zfill(6)
 
@@ -487,7 +487,7 @@ class M120Service(CsvPathService):
             return {}
 
         try:
-            df = pd.read_csv(self.M120_CSV_FILE, encoding="utf-8-sig")
+            df = pd.read_csv(self.M120_CSV_FILE, encoding="utf-8-sig", dtype=CODE_DTYPE)
             result = {}
             for _, row in df.iterrows():
                 code = str(int(row["股票代码"])).zfill(6)

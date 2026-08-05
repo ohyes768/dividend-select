@@ -9,7 +9,7 @@ from typing import Optional
 import akshare as ak
 import pandas as pd
 
-from src.utils.helpers import DATA_DIR, get_date_path, get_current_date_dir
+from src.utils.helpers import DATA_DIR, get_date_path, get_current_date_dir, CODE_DTYPE
 from src.utils.logger import setup_logger
 from src.services.base import CsvPathService
 
@@ -136,7 +136,7 @@ class PEDataService(CsvPathService):
             return {}
 
         try:
-            df = pd.read_csv(self.PE_CSV_FILE, encoding="utf-8-sig")
+            df = pd.read_csv(self.PE_CSV_FILE, encoding="utf-8-sig", dtype=CODE_DTYPE)
             result = {}
             for _, row in df.iterrows():
                 code = str(row["股票代码"]).zfill(6)

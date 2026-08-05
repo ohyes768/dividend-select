@@ -9,6 +9,7 @@ import pandas as pd
 
 from src.utils.config import AppConfig
 from src.utils.logger import setup_logger
+from src.utils.helpers import CODE_DTYPE
 
 logger = setup_logger(__name__)
 
@@ -73,7 +74,7 @@ class DataReader:
 
         logger.info(f"读取数据文件: {self.csv_path}")
         try:
-            df = pd.read_csv(self.csv_path, encoding=self.encoding)
+            df = pd.read_csv(self.csv_path, encoding=self.encoding, dtype=CODE_DTYPE)
             self._cache = df
             self._cache_timestamp = self.get_file_mtime()
             logger.info(f"数据加载成功，共 {len(df)} 条记录")

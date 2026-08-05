@@ -11,6 +11,7 @@ import pandas as pd
 from ..utils.helpers import (
     DATA_DIR,
     setup_logger,
+    CODE_DTYPE,
 )
 
 # 季度扣非同比的"本期"固定口径（akshare stock_financial_analysis_indicator
@@ -309,7 +310,7 @@ def main():
         logger.error(f"股息率数据文件不存在: {dividend_file}")
         return
 
-    df = pd.read_csv(dividend_file, encoding="utf-8-sig")
+    df = pd.read_csv(dividend_file, encoding="utf-8-sig", dtype=CODE_DTYPE)
     codes = df["股票代码"].astype(str).str.zfill(6).tolist()
 
     logger.info(f"从 {dividend_file} 读取了 {len(codes)} 只股票")

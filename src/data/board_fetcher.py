@@ -7,7 +7,7 @@ from typing import Dict, List, Set, Tuple
 
 import pandas as pd
 
-from ..utils.helpers import DATA_DIR, setup_logger, load_csv_data, get_current_date_dir, get_date_path, get_filename_with_date_suffix
+from ..utils.helpers import DATA_DIR, setup_logger, load_csv_data, get_current_date_dir, get_date_path, get_filename_with_date_suffix, CODE_DTYPE
 from .board_eastmoney import fetch_boards_for_stock
 
 logger = setup_logger(__name__)
@@ -174,13 +174,13 @@ class BoardMappingFetcher:
         if new_df.empty:
             logger.warning("save_to_csv：无新数据可写入，保持现有 CSV 不变")
             if self.output_file.exists():
-                return pd.read_csv(self.output_file, encoding="utf-8-sig")
+                return pd.read_csv(self.output_file, encoding="utf-8-sig", dtype=CODE_DTYPE)
             return new_df
 
         if append and self.output_file.exists():
             # 追加模式：读现有 CSV，与新数据合并去重（按股票代码）
             try:
-                existing_df = pd.read_csv(self.output_file, encoding="utf-8-sig")
+                existing_df = pd.read_csv(self.output_file, encoding="utf-8-sig", dtype=CODE_DTYPE)
                 existing_df["股票代码"] = existing_df["股票代码"].astype(str).str.zfill(6)
                 # 移除现有 CSV 中要被新数据覆盖的记录
                 new_codes = set(new_df["股票代码"].tolist())

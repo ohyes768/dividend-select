@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.utils.helpers import CODE_DTYPE
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="股息率数据展示工具")
@@ -27,7 +29,7 @@ def load_data() -> pd.DataFrame:
         print(f"错误: 数据文件不存在 - {data_file}")
         return pd.DataFrame()
 
-    df = pd.read_csv(data_file, encoding="utf-8-sig")
+    df = pd.read_csv(data_file, encoding="utf-8-sig", dtype=CODE_DTYPE)
     return df
 
 
