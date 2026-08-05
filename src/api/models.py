@@ -278,12 +278,25 @@ class StockInfoResponse(BaseModel):
 class IndexRefreshItem(BaseModel):
     """
     单个红利指数持仓刷新状态（用于全量刷新后展示每个指数的成败）
+
+    新增字段（FR-2/FR-4）：prefilter_resynced + prefilter_error 让前端能区分
+    "持仓成功 + prefilter 也成功" 与 "持仓成功但 prefilter 重算失败"，后者
+    徽章仍显示 ✗ + 重试按钮，不让主按钮误判完成。
     """
     code: str = Field(..., description="指数代码，如 000922")
     name: str = Field("", description="指数名称，如 中证红利")
     success: bool = Field(..., description="是否成功")
     constituents_count: int = Field(0, description="成分股数量")
     error: Optional[str] = Field(None, description="失败原因（success=True 时为 None）")
+    prefilter_resynced: bool = Field(
+        False,
+        description="单指数刷成功后是否完成 prefilter 本地重算。"
+                    "前端徽章显示 ✅ 需要 success + prefilter_resynced 都为 True",
+    )
+    prefilter_error: Optional[str] = Field(
+        None,
+        description="prefilter 重算失败原因（prefilter_resynced=False 时有意义）",
+    )
 
 
 class RefreshStats(BaseModel):
