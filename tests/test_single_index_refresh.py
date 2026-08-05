@@ -74,8 +74,12 @@ def _make_holdings_csv(codes_per_index: dict[str, list[str]]) -> pd.DataFrame:
 
 
 def _make_fhps_csv(codes: list[str]) -> pd.DataFrame:
-    """构造 fhps 全市场预案 CSV（仅含股票代码一列即可；列名兼容）"""
-    return pd.DataFrame({"股票代码": codes, "财年": [2025] * len(codes)})
+    """构造 fhps 全市场预案 CSV，列名与 FHPSFetcher._normalize_columns 输出一致
+
+    生产 CSV 列名是 '代码'（不是 '股票代码'），fhps_fetcher.py:75 规范化后直接 to_csv。
+    之前 fixture 用错列名让 test 通过、生产抛 KeyError（v2 hotfix 修复）。
+    """
+    return pd.DataFrame({"代码": codes, "财年": [2025] * len(codes)})
 
 
 class TestSingleIndexRefreshPrefilter:

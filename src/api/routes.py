@@ -2073,8 +2073,8 @@ def _resync_prefilter_after_index_refresh(date_str: str) -> tuple[bool, Optional
         holdings_df.loc[main_mask, "股票代码"].astype(str).str.zfill(6).unique()
     )
 
-    fhps_df = pd.read_csv(fhps_file, dtype={"股票代码": str})
-    fhps_codes = set(fhps_df["股票代码"].astype(str).str.zfill(6).unique())
+    fhps_df = pd.read_csv(fhps_file, dtype={"代码": str})
+    fhps_codes = set(fhps_df["代码"].astype(str).str.zfill(6).unique())
 
     final_codes = sorted(main_codes & fhps_codes)
     _persist_prefilter_stock_list(final_codes, date_str)
