@@ -390,10 +390,7 @@ class AlertLevels(BaseModel):
 class AlertConfig(BaseModel):
     """单只股票的挡位监控配置"""
     enabled: bool = Field(False, description="是否启用监控")
-    star_rating: Optional[int] = Field(None, description="星级评分 1-5（选填）", ge=0, le=5)
-    strategy: Optional[str] = Field(None, description="投资策略摘要（选填）", max_length=500)
-    doc_url: Optional[str] = Field(None, description="分析文档链接（选填）", max_length=500)
-    analysis_date: Optional[str] = Field(None, description="分析日期 YYYY-MM-DD（选填）")
+    updated_at: Optional[str] = Field(None, description="最后更新时间 (ISO 8601)，由后端自动记录")
     levels: AlertLevels = Field(default_factory=AlertLevels, description="4 档价格配置")
 
 
@@ -428,12 +425,8 @@ class FavoriteNoteRequest(BaseModel):
 
 
 class AlertConfigRequest(BaseModel):
-    """挡位配置更新请求"""
+    """挡位配置更新请求（updated_at 不接受前端传，由后端自动写）"""
     enabled: bool = Field(False, description="是否启用监控")
-    star_rating: Optional[int] = Field(None, ge=0, le=5)
-    strategy: Optional[str] = Field(None, max_length=500)
-    doc_url: Optional[str] = Field(None, max_length=500)
-    analysis_date: Optional[str] = Field(None)
     levels: AlertLevels = Field(default_factory=AlertLevels)
 
 
@@ -447,8 +440,7 @@ class AlertStatusItem(BaseModel):
     enabled: bool
     has_levels: bool = Field(..., description="是否配置了至少 1 档价格")
     level_count: int = Field(..., description="已配置档位数（0-4）")
-    star_rating: Optional[int] = None
-    strategy: Optional[str] = None
+    updated_at: Optional[str] = Field(None, description="挡位最后更新时间 (ISO 8601)")
     levels: Optional[AlertLevels] = None
     triggered_today: list = Field(
         default_factory=list,

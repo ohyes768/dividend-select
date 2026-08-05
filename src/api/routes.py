@@ -3248,7 +3248,11 @@ async def update_favorite_note(code: str, body: FavoriteNoteRequest):
 
 
 def _alert_config_to_dict(req: AlertConfigRequest) -> dict:
-    """AlertConfigRequest（Pydantic） → favorites.json alerts dict（纯 dict，便于 JSON 持久化）"""
+    """AlertConfigRequest（Pydantic） → favorites.json alerts dict（纯 dict，便于 JSON 持久化）
+
+    updated_at 由后端在写入时自动记录（不接前端传入），保证时间戳不可被前端伪造。
+    旧文件里残留的 star_rating/strategy/doc_url/analysis_date 字段下次写入会被自然丢弃（不再回写）。
+    """
     levels_py = req.levels
     levels_dict: dict[str, dict] = {}
     for key in ("heavy_position", "add_position", "reduce_position", "full_exit"):
@@ -3261,10 +3265,7 @@ def _alert_config_to_dict(req: AlertConfigRequest) -> dict:
 
     return {
         "enabled": bool(req.enabled),
-        "star_rating": req.star_rating,
-        "strategy": req.strategy,
-        "doc_url": req.doc_url,
-        "analysis_date": req.analysis_date,
+        "updated_at": datetime.now().isoformat(),
         "levels": levels_dict,
     }
 
@@ -3365,8 +3366,7 @@ async def get_alerts_status():
                 enabled=bool(alerts and alerts.get("enabled")),
                 has_levels=level_count > 0,
                 level_count=level_count,
-                star_rating=alerts.get("star_rating") if alerts else None,
-                strategy=alerts.get("strategy") if alerts else None,
+                updated_at=alerts.get("updated_at") if alerts else None,
                 levels=AlertLevels(
                     **{
                         k: AlertLevel(price=v["price"], pe=v.get("pe"))
