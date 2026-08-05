@@ -907,9 +907,11 @@ async def refresh_financial_data(
         if body and body.codes:
             codes = [str(c).zfill(6) for c in body.codes]
         else:
-            # 读取股息率数据，筛选：3年平均股息率>=3%且每年都有分红
+            # 读取 dividend 表（已经是 prefilter 后：8 指数 + fhps + 主板的 ~165 只），
+            # 直接扣掉 financial CSV 已有的 → 增量
+            # 改动：原本限 3 年平均股息率 ≥ 3%，2026-08-05 改成全 dividend 表覆盖，
+            # 这样次新股/低股息率股票也能拿到财务指标（如 002714 之类 0 派息年报）
             df = data_reader.read_csv()
-            df = filter_service.filter_by_3y_dividend(df, min_avg_yield=3.0)
             all_codes = df["股票代码"].astype(str).str.zfill(6).tolist()
 
             if force:
