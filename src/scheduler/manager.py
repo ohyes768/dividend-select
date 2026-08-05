@@ -231,13 +231,26 @@ class SchedulerManager:
     def _load_config(self) -> dict:
         try:
             with open(self._config_path, "r", encoding="utf-8") as f:
-                return json.load(f)
+                cfg = json.load(f)
         except FileNotFoundError:
-            logger.error(f"scheduler 配置文件不存在: {self._config_path}")
+            logger.error(
+                f"scheduler 配置文件不存在: {self._config_path} — "
+                "调度器将不注册任何任务。检查挂载卷或重新 build 镜像。"
+            )
             return {"version": 1, "jobs": []}
         except Exception as e:
             logger.error(f"scheduler 配置加载失败: {e}")
             return {"version": 1, "jobs": []}
+
+        # 关键：jobs 为空时常因 volume 覆盖导致，运维侧需要明显感知
+        if not cfg.get("jobs"):
+            logger.error(
+                "scheduler 配置加载成功但 jobs 列表为空 — "
+                "调度器将不注册任何任务！"
+                "检查 /app/config/scheduler.json 是否被 volume 覆盖，"
+                "或 config_path 路径是否正确。"
+            )
+        return cfg
 
     def _write_config(self) -> None:
         """把内存中 jobs_meta 写回 config 文件（保留原始字段顺序）。"""

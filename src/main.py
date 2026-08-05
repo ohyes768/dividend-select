@@ -123,7 +123,8 @@ async def lifespan(app: FastAPI):
     # 初始化 scheduler（依赖 data_reader，单 worker 模式）
     scheduler = SchedulerManager(
         port=AppConfig.get_server_port(),
-        config_path=PROJECT_ROOT / "config" / "scheduler.json",
+        # config_path 故意放在 src/scheduler/ 下，避开 /app/config volume 挂载（NAS 上 dividend-config 是 named volume，会覆盖配置）
+        config_path=PROJECT_ROOT / "src" / "scheduler" / "scheduler.json",
         history_path=PROJECT_ROOT / "data" / "scheduler_runs.jsonl",
     )
     scheduler.start(services={"data_reader": data_reader})
