@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "daily_price",
+      "name": "每日刷新实时价格",
+      "target": "refresh_realtime",
+      "cron": "30 15 * * 1-5",
+      "enabled": true,
+      "check_trading_day": true,
+      "description": "A 股 15:00 收盘后半小时刷价格（接口内顺带触发挡位告警）"
+    },
+    {
+      "id": "weekly_m120",
+      "name": "每周刷新 M120 均线",
+      "target": "refresh_m120",
+      "cron": "0 2 * * 6",
+      "enabled": true,
+      "check_trading_day": false,
+      "description": "周六 02:00 重算 M120（非交易日也跑，周末一次覆盖上周）"
+    },
+    {
+      "id": "monthly_dividend",
+      "name": "每月刷新股息率核心数据",
+      "target": "refresh_dividend",
+      "cron": "0 2 1 * *",
+      "enabled": true,
+      "check_trading_day": false,
+      "params": { "min_dividend": 10 },
+      "description": "每月 1 号 02:00 重算持仓 + 分红 + 股息率（耗时 30s ~ 5min）"
+    }
+  ]
+}

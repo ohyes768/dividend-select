@@ -50,6 +50,10 @@ data/*.csv
 data/**/*.csv
 data/alert_history.json
 data/.alert_history.json.corrupt-*
+# scheduler 运行时产物（APScheduler 历史 + 交易日历缓存）
+data/scheduler_runs.jsonl
+data/scheduler_runs.*.jsonl
+data/trading_calendar_cache.json
 
 # 本地配置
 .env.local

@@ -23,6 +23,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes import router, set_services
+from src.scheduler.manager import SchedulerManager
+from src.scheduler.routes import router as scheduler_router
 from src.services.alert_service import init_alert_service
 from src.services.data_reader import DataReader
 from src.services.favorites_service import FavoritesService
@@ -118,10 +120,21 @@ async def lifespan(app: FastAPI):
     fav_count = len(favorites_service.get_all()["codes"])
     logger.info(f"收藏服务就绪，当前 {fav_count} 只收藏")
 
+    # 初始化 scheduler（依赖 data_reader，单 worker 模式）
+    scheduler = SchedulerManager(
+        port=AppConfig.get_server_port(),
+        config_path=PROJECT_ROOT / "config" / "scheduler.json",
+        history_path=PROJECT_ROOT / "data" / "scheduler_runs.jsonl",
+    )
+    scheduler.start(services={"data_reader": data_reader})
+    app.state.scheduler = scheduler
+    logger.info("Scheduler 已启动")
+
     yield
 
     # 关闭事件
-    logger.info("dividend-select 服务关闭")
+    logger.info("dividend-select 服务关闭中...")
+    await scheduler.shutdown(wait=True, timeout=30)
 
 
 # 创建 FastAPI 应用
@@ -143,6 +156,8 @@ app.add_middleware(
 
 # 注册路由（添加 /api 前缀）
 app.include_router(router, prefix='/api/dividend')
+# scheduler 管理 API（最终路径 /api/dividend/scheduler/*）
+app.include_router(scheduler_router, prefix='/api/dividend')
 
 
 if __name__ == "__main__":
