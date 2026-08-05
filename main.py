@@ -21,6 +21,7 @@ from src.data.fhps_fetcher import FHPSFetcher
 from src.core import DividendCalculator
 from src.utils import setup_logger, save_csv_data, append_csv_row, load_existing_codes, move_all_data_files, get_current_date_dir
 from src.data.models import StockResult
+from src.api.routes import _persist_prefilter_stock_list
 
 logger = setup_logger(__name__)
 
@@ -163,9 +164,8 @@ def main():
     logger.info(f"获取到 {len(stock_list)} 只符合条件的股票")
 
     # prefilter stock_list 持久化（与 routes.py refresh 行为一致，status 接口用）
-    prefilter_df = pd.DataFrame([{"股票代码": s.code} for s in stock_list])
-    save_csv_data(prefilter_df, "prefilter_stock_list", date_str)
-    logger.info(f"prefilter stock_list 已写盘: {len(stock_list)} 只")
+    # 委托给 _persist_prefilter_stock_list，与 API refresh 路径共享同一写盘逻辑
+    _persist_prefilter_stock_list(stock_list, date_str)
 
     # Step 2: 检查已处理的股票，实现断点续传
     existing_codes = load_existing_codes(OUTPUT_FILE, date_str)

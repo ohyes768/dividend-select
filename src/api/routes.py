@@ -1598,7 +1598,8 @@ async def get_dividend_status():
     获取股息率数据状态
 
     返回：
-    - needs_update: 是否需要更新（CSV 行数 < 目标数，或持仓指数覆盖不全）
+    - needs_update: 是否需要更新（CSV 行数 < 目标数）；
+                   持仓覆盖度由 /dividend/index-holdings/refresh 单指数重试入口负责，不再代管主按钮
     - last_updated: 上次更新时间
     - file_exists: 文件是否存在
     - pending_count: 待完成数量（目标总数 - 已完成数）
@@ -1713,8 +1714,9 @@ async def get_dividend_status():
 
     # max(0, ...) 兜底：prefilter 后 target 可能 < completed（CSV 残留 1 只历史数据）
     pending_count = max(0, target_count - completed_count)
-    # needs_update 加持仓覆盖度判断：持仓不完整（如单指数刷新留下的残缺数据）也算待更新
-    needs_update = completed_count < target_count or not holdings_complete
+    # needs_update 仅看对比 1（completed vs target）；持仓覆盖度由 /dividend/index-holdings/refresh 负责
+    # 历史：旧 commit 423d2fe 临时把 holdings_complete 加进 needs_update 绑错按钮；本任务取消该绑定
+    needs_update = completed_count < target_count
 
     return {
         "needs_update": needs_update,
@@ -1727,6 +1729,29 @@ async def get_dividend_status():
         "fhps": fhps_info,
         "holdings_status": holdings_status,
     }
+
+
+def _persist_prefilter_stock_list(stock_items, date_str: str) -> None:
+    """把 prefilter 后的股票代码单列写盘到 data/{date_str}/prefilter_stock_list_{date_str}.csv。
+
+    stock_items 可含 StockBasicInfo（有 .code 属性）或纯 str。内部统一 zfill(6)，
+    列类型 str，与汇总裁减口径一致。
+
+    调用方：
+    1. refresh_dividend / main.py：传入 fetcher.get_stock_list() 已算好的 list[StockBasicInfo]
+    2. 单指数刷后本地重算：传入自己重算后的 list[str]
+
+    口径与 commit 3c1dce4 一致（status 接口 target_count 的唯一来源）。
+    """
+    codes = [
+        str(s.code if hasattr(s, "code") else s).zfill(6)
+        for s in stock_items
+    ]
+    if not codes:
+        raise ValueError("prefilter stock_list 为空，拒绝写空文件")
+    prefilter_df = pd.DataFrame([{"股票代码": c} for c in codes])
+    save_csv_data(prefilter_df, "prefilter_stock_list.csv", date_str)
+    logger.info(f"prefilter stock_list 已写盘: {len(codes)} 只")
 
 
 @router.post("/dividend/refresh", response_model=RefreshResponse)
@@ -1835,10 +1860,8 @@ async def refresh_dividend_data(request: RefreshRequest):
 
         # 写 prefilter 后的 stock_list 持久化（status 接口读这个算 target_count）
         # 在断点续传过滤之前写，保 142 全量；status 接口对齐 refresh 实际口径
-        from src.utils.helpers import save_csv_data
-        prefilter_df = pd.DataFrame([{"股票代码": s.code} for s in stock_list])
-        save_csv_data(prefilter_df, "prefilter_stock_list.csv", date_str)
-        logger.info(f"prefilter stock_list 已写盘: {len(stock_list)} 只")
+        # 委托给 _persist_prefilter_stock_list，与 main.py CLI 路径共享同一写盘逻辑
+        _persist_prefilter_stock_list(stock_list, date_str)
 
         # Step 2: 检查已处理的股票，实现断点续传
         existing_codes = load_existing_codes(output_file, date_str)
@@ -1948,7 +1971,13 @@ async def refresh_single_index_holdings(request: IndexRefreshRequest):
     用例：全量刷新后某个指数失败 → 前端点徽章单独重试该指数。
     复用 _is_refreshing 锁，与全量刷新互斥（避免并发写汇总 CSV）。
 
-    返回 IndexRefreshItem：{ code, name, success, constituents_count, error }
+    FR-2/FR-4：success=True 后本地重算 prefilter_stock_list_YYYY-MM.csv
+    （读汇总 CSV + fhps 缓存 + 主板过滤 → 交集），不调 akshare。
+    重算成功/失败状态用 prefilter_resynced + prefilter_error 字段返回给前端，
+    让前端徽章区分"持仓成功 + prefilter 也成功"与"持仓成功但 prefilter 失败"。
+
+    返回 IndexRefreshItem：{ code, name, success, constituents_count, error,
+                              prefilter_resynced, prefilter_error }
     """
     global _is_refreshing
 
@@ -1966,6 +1995,7 @@ async def refresh_single_index_holdings(request: IndexRefreshRequest):
         logger.info(f"单指数持仓刷新开始: code={request.code}, ts={started_at}")
 
         from src.data import IndexHoldingsFetcher
+        from src.utils.helpers import get_current_date_dir
         fetcher = IndexHoldingsFetcher(use_local=False)
         result = fetcher.replace_one_holdings(request.code)
 
@@ -1981,7 +2011,28 @@ async def refresh_single_index_holdings(request: IndexRefreshRequest):
                 f"error={result.get('error')}, 耗时 {elapsed}s"
             )
 
-        return IndexRefreshItem(**result)
+        # FR-2: 单指数刷成功后，本地重算 prefilter（不调 akshare，读汇总 CSV + fhps 缓存）
+        # 失败时 logger.error 不抛出，让单指数刷 API 仍返回 success=true，
+        # 但带 prefilter_resynced=false + prefilter_error 让前端徽章不显示 ✅
+        prefilter_resynced = False
+        prefilter_error: Optional[str] = None
+        if result["success"]:
+            try:
+                prefilter_resynced, prefilter_error = _resync_prefilter_after_index_refresh(
+                    date_str=get_current_date_dir()
+                )
+            except Exception as pf_err:
+                logger.error(
+                    f"单指数 {request.code} 刷持仓成功但 prefilter 重算失败: {pf_err}",
+                    exc_info=True,
+                )
+                prefilter_error = str(pf_err)[:200]
+
+        return IndexRefreshItem(
+            **result,
+            prefilter_resynced=prefilter_resynced,
+            prefilter_error=prefilter_error,
+        )
 
     except HTTPException:
         raise
@@ -1994,6 +2045,40 @@ async def refresh_single_index_holdings(request: IndexRefreshRequest):
     finally:
         _is_refreshing = False
         logger.debug("单指数刷新并发控制标志已清除")
+
+
+def _resync_prefilter_after_index_refresh(date_str: str) -> tuple[bool, Optional[str]]:
+    """单指数刷成功后调用：本地重算 prefilter_stock_list_{date_str}.csv。
+
+    步骤：
+    1. 读 红利指数持仓汇总_{date_str}.csv（已被 replace_one_holdings 写好）
+    2. 主板筛选（'交易所' ∈ {沪市主板, 深市主板}）
+    3. 读 fhps_20251231.csv 全市场预案
+    4. 主板 ∩ fhps → 排序
+    5. _persist_prefilter_stock_list 写盘
+
+    Returns:
+        (success: bool, error_msg: Optional[str])
+        成功 → (True, None)；失败 → (False, 错误文本前 200 字符)
+    """
+    holdings_file = DATA_DIR / date_str / f"红利指数持仓汇总_{date_str}.csv"
+    fhps_file = DATA_DIR / "fhps" / "fhps_20251231.csv"
+
+    holdings_df = pd.read_csv(
+        holdings_file,
+        dtype={"股票代码": str, "来源指数代码": str},
+    )
+    main_mask = holdings_df["交易所"].isin(["沪市主板", "深市主板"])
+    main_codes = set(
+        holdings_df.loc[main_mask, "股票代码"].astype(str).str.zfill(6).unique()
+    )
+
+    fhps_df = pd.read_csv(fhps_file, dtype={"股票代码": str})
+    fhps_codes = set(fhps_df["股票代码"].astype(str).str.zfill(6).unique())
+
+    final_codes = sorted(main_codes & fhps_codes)
+    _persist_prefilter_stock_list(final_codes, date_str)
+    return True, None
 
 
 @router.post("/dividend/fhps/refresh")
