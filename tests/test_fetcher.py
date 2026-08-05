@@ -126,3 +126,48 @@ class TestIndexHoldingsFetcherPrefilter:
         # 601318 分红次数=15 > 11 → 保留
         assert "601318" in codes
         assert len(result) == 2
+
+
+class TestDividendCountAlwaysFresh:
+    """修"本地 dividend_count cache 只有 133 条就漏股票"的 bug
+
+    use_local=False（生产默认）：永远从 akshare 拉全市场 dividend_count，
+    写盘覆盖本地 cache；无论本地 CSV 存在与否。
+    """
+
+    def test_normal_mode_calls_akshare_even_when_local_cache_exists(
+        self, holdings_df, dividend_df
+    ):
+        """production：use_local=False 调 akshare 拉全市场 dividend_count，
+        即使本地 dividend_count CSV 已存在也不读它"""
+        fake_fhps = FakeFHPSFetcher(codes=["600123", "601318", "000001"])
+        fetcher = IndexHoldingsFetcher(use_local=False, fhps_fetcher=fake_fhps)
+
+        with patch("src.data.fetcher.load_csv_data", side_effect=[holdings_df, dividend_df]) as mock_load, \
+             patch("src.data.fetcher.save_csv_data") as mock_save, \
+             patch.object(fetcher, "fetch_all_dividend_counts") as mock_fetch:
+            # akshare 返回全市场 3 只都高分红
+            mock_fetch.return_value = {"600123": 100, "601318": 100, "000001": 100}
+            result = fetcher.get_stock_list(min_dividend_count=5, date_str="2026-06")
+
+            # 关键契约：use_local=False 模式必调 akshare（即使本地 cache 存在）
+            mock_fetch.assert_called_once()
+            # akshare 拉全市场，写盘覆盖本地 CSV
+            mock_save.assert_called_once()
+            # 返回全部 3 只（akshare 全市场覆盖）
+            assert len(result) == 3
+            # 注意：load_csv_data 被调 1 次（只读 holdings），dividend_df 是 step 2 不读本地 cache 的证明
+
+    def test_use_local_true_still_skips_akshare(self, mock_csv):
+        """回归保护：use_local=True 模式仍 trust 本地 cache 不调 akshare"""
+        fake_fhps = FakeFHPSFetcher(codes=["600123", "601318", "000001"])
+        fetcher = IndexHoldingsFetcher(use_local=True, fhps_fetcher=fake_fhps)
+
+        with patch.object(fetcher, "fetch_all_dividend_counts") as mock_fetch:
+            result = fetcher.get_stock_list(min_dividend_count=5, date_str="2026-06")
+
+            # use_local=True：不调 akshare
+            mock_fetch.assert_not_called()
+            # 返回 dividend_df 里的 3 只（mock_csv fixture 提供的本地数据）
+            assert len(result) == 3
+

@@ -415,15 +415,18 @@ class IndexHoldingsFetcher:
             save_csv_data(holdings_df, "红利指数持仓汇总.csv", date_str)
             logger.info(f"持仓数据已保存到 {date_str}/: {len(holdings_df)} 条")
 
-        # Step 2: 获取分红次数（优先使用本地已有文件）
-        dividend_df = load_csv_data("股票分红次数汇总.csv", date_str)
-        if dividend_df is not None and not dividend_df.empty:
-            logger.info(f"使用本地分红次数数据: {len(dividend_df)} 条")
-        else:
-            if self.use_local:
+        # Step 2: 获取分红次数
+        # 默认模式：永远从 akshare 拉全市场（修"本地 cache 不全就漏股票"的 bug——
+        #          本地 CSV 只有 133 条时远少于应有 5000+ 主板，过期/不全 cache 会漏判）
+        # use_local 模式：trust 本地 cache 不调 akshare（CI/测试 或用户显式要求）
+        if self.use_local:
+            dividend_df = load_csv_data("股票分红次数汇总.csv", date_str)
+            if dividend_df is None or dividend_df.empty:
                 logger.error("需要本地分红次数数据但文件不存在")
                 return []
-            logger.info("获取分红次数数据...")
+            logger.info(f"use_local 模式：使用本地 dividend_count {len(dividend_df)} 条")
+        else:
+            logger.info("从 akshare 拉全市场 dividend_count（refresh 主路径）...")
             stock_codes = holdings_df["股票代码"].tolist()
             dividend_counts = self.fetch_all_dividend_counts(stock_codes)
 
