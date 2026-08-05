@@ -58,6 +58,9 @@ class SchedulerManager:
         self.jobs_meta = {j["id"]: j for j in config.get("jobs", [])}
 
         scheduler = AsyncIOScheduler(
+            # 显式指定 Shanghai 时区：crontab 表达式按本地时间解析
+            # 缺省为 UTC，会导致 0 2 1 * * 触发时机偏移 8 小时（02:00 UTC = 10:00 北京）
+            timezone="Asia/Shanghai",
             job_defaults={
                 "max_instances": 1,
                 "coalesce": True,
