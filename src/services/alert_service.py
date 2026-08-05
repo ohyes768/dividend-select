@@ -34,11 +34,13 @@ logger = setup_logger(__name__)
 
 # 档位元数据（顺序无关，每档独立判断）
 # severity: 同方向命中多档时取最严重的
+# 与前端 AlertLevelBar HIT_META 措辞对齐（2026-08-06 UX 优化）
+# label 用于钉钉推送表格；emoji 保持原样
 LEVEL_META = {
-    "heavy_position":  {"label": "重仓档", "emoji": "🟢", "direction": "buy",  "severity": 2},
-    "add_position":    {"label": "加仓档", "emoji": "🟡", "direction": "buy",  "severity": 1},
-    "reduce_position": {"label": "减仓档", "emoji": "🟠", "direction": "sell", "severity": 1},
-    "full_exit":       {"label": "全卖档", "emoji": "🔴", "direction": "sell", "severity": 2},
+    "heavy_position":  {"label": "可加仓",   "emoji": "🟢", "direction": "buy",  "severity": 2},
+    "add_position":    {"label": "加仓价位", "emoji": "🟡", "direction": "buy",  "severity": 1},
+    "reduce_position": {"label": "该减仓",   "emoji": "🟠", "direction": "sell", "severity": 1},
+    "full_exit":       {"label": "全部清仓", "emoji": "🔴", "direction": "sell", "severity": 2},
 }
 
 
