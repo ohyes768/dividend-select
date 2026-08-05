@@ -423,7 +423,7 @@ class M120Service(CsvPathService):
             try:
                 price_df = pd.read_csv(self.REALTIME_PRICE_CSV_FILE, encoding="utf-8-sig", dtype=CODE_DTYPE)
                 for _, row in price_df.iterrows():
-                    code = str(int(row["股票代码"])).zfill(6)
+                    code = str(row["股票代码"]).zfill(6)
 
                     # 兼容新旧CSV格式：新格式有"昨日收盘"和"实时价格"，旧格式只有"收盘价"
                     if "昨日收盘" in price_df.columns:
@@ -446,7 +446,7 @@ class M120Service(CsvPathService):
         # 合并数据并计算偏离度
         result = {}
         for _, row in m120_df.iterrows():
-            code = str(int(row["股票代码"])).zfill(6)
+            code = str(row["股票代码"]).zfill(6)
             m120 = float(row["M120"])
 
             price_data = price_dict.get(code, {})
@@ -490,7 +490,7 @@ class M120Service(CsvPathService):
             df = pd.read_csv(self.M120_CSV_FILE, encoding="utf-8-sig", dtype=CODE_DTYPE)
             result = {}
             for _, row in df.iterrows():
-                code = str(int(row["股票代码"])).zfill(6)
+                code = str(row["股票代码"]).zfill(6)
                 result[code] = {
                     "m120": float(row["M120"]),
                 }

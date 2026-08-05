@@ -682,7 +682,7 @@ async def get_m120_status(
     all_stocks_df = data_reader.read_csv()
     if min_yield > 0:
         all_stocks_df = filter_service.filter_by_3y_dividend(all_stocks_df, min_avg_yield=min_yield)
-    all_codes = set(str(int(c)).zfill(6) for c in all_stocks_df["股票代码"])
+    all_codes = set(str(c).zfill(6) for c in all_stocks_df["股票代码"])
 
     # 读取 M120 数据
     m120_data = m120_service.read_m120_data()
