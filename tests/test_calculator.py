@@ -17,6 +17,8 @@ else:
 from src.core.calculator import DividendCalculator, ALIYUN_API_HOST, ALIYUN_API_PATH, ALIYUN_API_APPCODE
 from src.data.models import StockBasicInfo
 
+import pandas as pd
+
 
 class TestDividendCalculator:
     """DividendCalculator 单元测试"""
@@ -263,3 +265,103 @@ class TestDividendCalculator:
             url = call_args[0][0].full_url
             assert "symbol=SZ000001" in url
             assert "psize=500" in url
+
+
+class TestFallbackDetailForRequiredYears:
+    """修"cninfo 不收录 0 派息年报 → calculate_stock 误剔除"的 bug
+
+    002714 牧原股份场景：
+    - cninfo 缺 2023 年报行（因为 2023 年报 0 派息，公司当时不分红）
+    - detail 接口给 2024-04-27 那条"不分配"行，启发式判定为 2023 年报披露
+    - fallback 自动补 required_years 缺失的年报行
+    """
+
+    @staticmethod
+    def _002714_detail_df():
+        """002714 真实 detail 接口数据（2026-08-05 实测）"""
+        return pd.DataFrame({
+            "公告日期": [
+                "2026-05-21", "2025-10-10", "2025-06-20", "2024-12-24",
+                "2024-04-27", "2023-07-06", "2022-06-01", "2021-05-28",
+                "2020-05-28", "2019-06-27", "2018-06-27", "2017-07-04",
+                "2016-07-01", "2015-06-03", "2014-06-30",
+            ],
+            "送股": [0] * 15,
+            "转增": [0, 0, 0, 0, 0, 0, 4, 7, 0, 0, 8, 0, 10, 10, 0],
+            "派息": [4.27, 9.27521, 5.74269, 8.34793, 0.0, 7.38178,
+                     2.48023, 14.61, 5.5, 0.5, 6.9, 6.91, 3.53, 0.61, 2.34],
+            "进度": ["实施"] * 4 + ["不分配", "实施"] + ["实施"] * 9,
+            "除权除息日": [None] * 15,
+            "股权登记日": [None] * 15,
+            "红股上市日": [None] * 15,
+        })
+
+    def test_fallback_fills_missing_2023_via_detail(self):
+        """输入 df 只有 2024+2025，detail 有 2023 年报行（0 派息），
+        fallback 后 df 应含 2023 财年记录"""
+        calc = DividendCalculator()
+        df_existing = pd.DataFrame({
+            "财年": [2024, 2025],
+            "报告时间": ["2024年报", "2025年报"],
+            "派息比例": [3.5, 5.0],
+            "_is_cninfo": [True, True],
+            "_source": ["cninfo", "cninfo"],
+        })
+
+        with patch("src.core.calculator.ak") as mock_ak:
+            mock_ak.stock_history_dividend_detail.return_value = self._002714_detail_df()
+            new_df, still_missing = calc._fallback_detail_for_required_years(
+                "002714", df_existing, [2023, 2024, 2025]
+            )
+
+        # 2023 应被补上一条
+        assert 2023 in new_df["财年"].tolist(), \
+            f"002714 detail fallback 应补 2023 年报记录，实际 cols={new_df['财年'].tolist()}"
+        assert 2024 in new_df["财年"].tolist()
+        assert 2025 in new_df["财年"].tolist()
+
+        # 2023 补的应该是 0 派息 + 不分配
+        row_2023 = new_df[new_df["财年"] == 2023].iloc[0]
+        assert row_2023["派息比例"] == 0.0
+        assert "不分配" in row_2023["分红类型"]
+
+    def test_fallback_no_trigger_when_cninfo_complete(self):
+        """df 已有全部 required_years 时，fallback 不调 detail 接口"""
+        calc = DividendCalculator()
+        df_existing = pd.DataFrame({
+            "财年": [2023, 2024, 2025],
+            "报告时间": ["2023年报", "2024年报", "2025年报"],
+            "派息比例": [3.0, 3.5, 5.0],
+            "_is_cninfo": [True, True, True],
+            "_source": ["cninfo"] * 3,
+        })
+
+        with patch("src.core.calculator.ak") as mock_ak:
+            mock_ak.stock_history_dividend_detail.return_value = pd.DataFrame()
+            calc._fallback_detail_for_required_years(
+                "000001", df_existing, [2023, 2024, 2025]
+            )
+
+        mock_ak.stock_history_dividend_detail.assert_not_called()
+
+    def test_fallback_handles_detail_failure_gracefully(self):
+        """detail 接口抛错时 fallback 不 throw，返回原 df 不变"""
+        calc = DividendCalculator()
+        df_existing = pd.DataFrame({
+            "财年": [2024, 2025],
+            "报告时间": ["2024年报", "2025年报"],
+            "派息比例": [3.5, 5.0],
+            "_is_cninfo": [True, True],
+            "_source": ["cninfo", "cninfo"],
+        })
+
+        with patch("src.core.calculator.ak") as mock_ak:
+            mock_ak.stock_history_dividend_detail.side_effect = Exception("接口超时")
+            new_df, still_missing = calc._fallback_detail_for_required_years(
+                "002714", df_existing, [2023, 2024, 2025]
+            )
+
+        # fallback 失败时不应抛错，df 应保留原内容
+        assert still_missing == [2023]
+        assert 2024 in new_df["财年"].tolist()
+        assert 2025 in new_df["财年"].tolist()

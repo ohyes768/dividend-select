@@ -374,10 +374,104 @@ class DividendCalculator:
                 )
 
         if df is not None and not df.empty:
+            # 兜底修 "002714 之类 cninfo 不收录 0 派息年报" 的 bug
+            df, _still_missing = self._fallback_detail_for_required_years(
+                code, df, [2023, 2024, 2025]
+            )
             self._dividend_cache[code] = df
             return df
 
         return None
+
+    def _fallback_detail_for_required_years(
+        self, code: str, df: Optional[pd.DataFrame], required_years: list[int]
+    ) -> tuple[Optional[pd.DataFrame], list[int]]:
+        """detail 接口兜底：补 cninfo+fhps 都缺某年的"年报披露事实"行
+
+        背景：002714 牧原股份 2023 年报是 "0 派息/不分配"，cninfo 接口不收录
+        这种行 → cninfo 报"没数据" → calculate_stock 把 002714 当作"缺 2023"剔除。
+        stock_history_dividend_detail 接口能识别 2024-04-27 那条 "0 派息/不分配"
+        行（公告月份 ≤ 7 启发式判定为上一年的年报披露）。
+
+        启发式推财年：
+          - 公告月份 ≤ 7 → 这一行是上一年的年报派息（含"0 不分配"也算年报已披露）
+          - 公告月份 ≥ 8 → 当前年的中报/季报派息
+
+        Returns:
+            (新 df 或原 df, 仍缺失的年份列表)
+        """
+        existing_years = set()
+        if df is not None and not df.empty and "财年" in df.columns:
+            for v in df["财年"].dropna().unique():
+                try:
+                    existing_years.add(int(v))
+                except (ValueError, TypeError):
+                    pass
+        missing = [y for y in required_years if y not in existing_years]
+        if not missing:
+            return df, []
+
+        try:
+            raw = ak.stock_history_dividend_detail(symbol=code)
+            if raw is None or raw.empty:
+                return df, missing
+        except Exception as e:
+            logger.warning(f"{code}: detail fallback 拉取失败: {e}")
+            return df, missing
+
+        skeleton = pd.DataFrame(columns=[
+            "实施方案公告日期", "分红类型", "送股比例", "转增比例",
+            "派息比例", "股权登记日", "除权除息日", "派息日",
+            "股份到账日", "实施方案分红说明", "报告时间", "财年",
+            "_is_cninfo", "_source",
+        ])
+        if df is None or df.empty:
+            df = skeleton.copy()
+
+        new_records = []
+        still_missing = list(missing)
+        for _, drow in raw.iterrows():
+            try:
+                pub = str(drow.get("公告日期", ""))[:10]
+                y, m, _d = pub.split("-")
+                y, m = int(y), int(m)
+            except Exception:
+                continue
+            # 启发式：月份 ≤ 7 → 上一年的年报；月份 ≥ 8 → 当前年的中期分红
+            fiscal_year = y - 1 if m <= 7 else y
+            # 只补 required_years 缺失的"年报"，避免 002714 2025-06-20（中报）误归 2024
+            if fiscal_year not in still_missing or m >= 8:
+                continue
+            pfee = float(drow.get("派息", 0) or 0)
+            progress = str(drow.get("进度", "公告"))
+            new_records.append({
+                "实施方案公告日期": drow.get("公告日期"),
+                "分红类型": progress,
+                "送股比例": 0.0,
+                "转增比例": 0.0,
+                "派息比例": pfee * 10,  # detail 是"每股 X 元"，cninfo 是"每 10 股派 X"，差 10 倍
+                "股权登记日": None,
+                "除权除息日": drow.get("除权除息日"),
+                "派息日": None,
+                "股份到账日": None,
+                "实施方案分红说明": (
+                    f"年报披露 (detail fallback, 公告 {drow.get('公告日期')}, "
+                    f"派 {pfee}元/股, 进度 {progress})"
+                ),
+                "报告时间": f"{fiscal_year}年报(detail)",
+                "财年": fiscal_year,
+                "_is_cninfo": True,  # 让 get_yearly_dividend 走 cninfo 分支读 派息比例
+                "_source": "detail",
+            })
+            still_missing = [m for m in still_missing if m != fiscal_year]
+            logger.info(
+                f"{code}: detail fallback 补 {fiscal_year} 年报记录"
+                f"（公告 {drow.get('公告日期')}，进度={progress}）"
+            )
+
+        if new_records:
+            df = pd.concat([df, pd.DataFrame(new_records)], ignore_index=True)
+        return df, still_missing
 
     def calc_yearly_avg_price(self, price_df: pd.DataFrame, year: int) -> float:
         """计算指定年度的平均股价"""
