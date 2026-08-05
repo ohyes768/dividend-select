@@ -195,7 +195,7 @@ def get_exchange(code) -> str:
         return "其他"
 
 
-def load_csv_data(filename: str, date_str: Optional[str] = None) -> Optional[pd.DataFrame]:
+def load_csv_data(filename: str, date_str: Optional[str] = None, dtype: Optional[dict] = None) -> Optional[pd.DataFrame]:
     """
     加载CSV数据文件
     自动添加日期后缀，优先从当前目录读取，不存在则从月度目录读取
@@ -203,6 +203,9 @@ def load_csv_data(filename: str, date_str: Optional[str] = None) -> Optional[pd.
     Args:
         filename: 文件名（如：红利指数持仓汇总.csv）
         date_str: 日期字符串（YYYY-MM格式），None则使用当前月份
+        dtype: 列名 → 数据类型的 dict，传给 pd.read_csv。
+              含前导 0 的 ID 列（如 "股票代码"、"来源指数代码"）应传 str，
+              避免 read_csv 推断成 int64 丢前导 0（如 "000922" → 922）。
 
     Returns:
         DataFrame数据，失败返回None
@@ -210,11 +213,15 @@ def load_csv_data(filename: str, date_str: Optional[str] = None) -> Optional[pd.
     # 添加日期后缀
     filename_with_suffix = get_filename_with_date_suffix(filename, date_str)
 
+    read_kwargs = {"encoding": "utf-8-sig"}
+    if dtype is not None:
+        read_kwargs["dtype"] = dtype
+
     # 先尝试从当前目录读取
     filepath = DATA_DIR / filename_with_suffix
     if filepath.exists():
         try:
-            return pd.read_csv(filepath, encoding="utf-8-sig")
+            return pd.read_csv(filepath, **read_kwargs)
         except Exception:
             pass
 
@@ -224,7 +231,7 @@ def load_csv_data(filename: str, date_str: Optional[str] = None) -> Optional[pd.
     filepath = DATA_DIR / date_str / filename_with_suffix
     if filepath.exists():
         try:
-            return pd.read_csv(filepath, encoding="utf-8-sig")
+            return pd.read_csv(filepath, **read_kwargs)
         except Exception:
             pass
 

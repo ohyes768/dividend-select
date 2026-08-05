@@ -270,9 +270,18 @@ class IndexHoldingsFetcher:
         df_new = df_new.copy()
         df_new["来源指数"] = index_name
         df_new["来源指数代码"] = index_code
+        # 防御：确保前导 0 字符串列不会被 pd.to_csv 丢前导 0
+        df_new["股票代码"] = df_new["股票代码"].astype(str).str.zfill(6)
+        df_new["来源指数代码"] = df_new["来源指数代码"].astype(str)
 
         # 2. 读现有汇总 CSV（load_csv_data 自带当月→历史 fallback）
-        existing = load_csv_data("红利指数持仓汇总.csv", date_str)
+        #    ⚠️ 必须 dtype=str 强制保留前导 0，否则 read_csv 把 "000922" 推断成 int64 → 922，
+        #    astype(str) 后只能变 '922'，前导 0 已经丢了。详细见 helpers.py load_csv_data 注释。
+        existing = load_csv_data(
+            "红利指数持仓汇总.csv",
+            date_str,
+            dtype={"股票代码": str, "来源指数代码": str},
+        )
         if existing is None or existing.empty:
             # 当月没汇总 CSV → 只写该指数（其他指数等下次全量刷新）
             combined = df_new
