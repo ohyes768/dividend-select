@@ -3262,6 +3262,8 @@ def _alert_config_to_dict(req: AlertConfigRequest) -> dict:
         levels_dict[key] = {"price": float(lv.price)}
         if lv.pe is not None:
             levels_dict[key]["pe"] = float(lv.pe)
+        if lv.pb is not None:
+            levels_dict[key]["pb"] = float(lv.pb)
 
     return {
         "enabled": bool(req.enabled),
@@ -3369,7 +3371,11 @@ async def get_alerts_status():
                 updated_at=alerts.get("updated_at") if alerts else None,
                 levels=AlertLevels(
                     **{
-                        k: AlertLevel(price=v["price"], pe=v.get("pe"))
+                        k: AlertLevel(
+                            price=v["price"],
+                            pe=v.get("pe"),
+                            pb=v.get("pb"),
+                        )
                         for k, v in levels_dict.items()
                         if v and v.get("price")
                     }

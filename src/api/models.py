@@ -374,9 +374,10 @@ class BoardInfoResponse(BaseModel):
 
 
 class AlertLevel(BaseModel):
-    """单档挡位（价格必填，PE 选填仅作推送展示）"""
+    """单档挡位（价格必填，PE/PB 选填仅作推送展示）"""
     price: float = Field(..., description="挡位价格（元）", gt=0)
     pe: Optional[float] = Field(None, description="对应挡位 PE（选填，仅推送时展示）")
+    pb: Optional[float] = Field(None, description="对应挡位 PB（选填，前端水平价位条展示）")
 
 
 class AlertLevels(BaseModel):
