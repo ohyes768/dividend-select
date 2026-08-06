@@ -2,7 +2,8 @@
 Batch Alerts API 集成测试
 
 覆盖 POST /api/dividend/favorites/alerts/batch：
-- happy path（已收藏 / 未收藏自动加）
+- happy path（已收藏）
+- 未收藏 → per-item fail（不自动加收藏）
 - 部分失败
 - token 校验（缺失 / 错误 / 服务端未配置）
 - Pydantic 校验（updates 超限 / price ≤ 0）
@@ -79,6 +80,12 @@ def _token_headers(token: str = "test-token") -> dict:
     return {"X-API-Token": token}
 
 
+def _add_favorite(client: TestClient, code: str) -> None:
+    """测试 helper：先加自选"""
+    resp = client.post(f"/api/dividend/favorites/{code}")
+    assert resp.status_code == 200
+
+
 # ========== Happy path ==========
 
 
@@ -86,7 +93,7 @@ class TestHappy:
 
     def test_batch_already_favorite(self, client: TestClient):
         """code 已在 favorites → 直接更新挡位"""
-        client.post("/api/dividend/favorites/600000")  # 先加收藏
+        _add_favorite(client, "600000")
         resp = client.post(BATCH_URL, json={"updates": [_make_update("600000")]},
                            headers=_token_headers())
         assert resp.status_code == 200
@@ -100,20 +107,10 @@ class TestHappy:
         assert item["alerts"]["enabled"] is True
         assert item["alerts"]["levels"]["heavy_position"]["price"] == 10.0
 
-    def test_batch_auto_add_favorite(self, client: TestClient):
-        """code 不在 favorites → 自动加入 + 设挡位"""
-        resp = client.post(BATCH_URL, json={"updates": [_make_update("600000")]},
-                           headers=_token_headers())
-        assert resp.status_code == 200
-        assert resp.json()["results"][0]["ok"] is True
-
-        # 自动加入了 favorites
-        fav = client.get("/api/dividend/favorites").json()
-        assert "600000" in fav["codes"]
-        assert len(fav["codes"]) == 1
-
     def test_batch_multiple_with_pe_pb(self, client: TestClient):
         """多条 + pe/pb 写入"""
+        _add_favorite(client, "600000")
+        _add_favorite(client, "000001")
         updates = [
             _make_update("600000", _make_levels(10, 12, 15, 18, pe=8.5, pb=1.2)),
             _make_update("000001", _make_levels(11, 13, 16, 19)),
@@ -132,27 +129,54 @@ class TestHappy:
         assert item["alerts"]["levels"]["heavy_position"]["pb"] == 1.2
 
 
+# ========== 未收藏（不自动加） ==========
+
+
+class TestNotFavorite:
+
+    def test_not_favorite_fails(self, client: TestClient):
+        """code 不在 favorites → per-item fail，不自动加入"""
+        resp = client.post(BATCH_URL, json={"updates": [_make_update("600000")]},
+                           headers=_token_headers())
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success_count"] == 0
+        assert body["fail_count"] == 1
+        result = body["results"][0]
+        assert result["ok"] is False
+        assert "不在收藏中" in result["error"]
+
+        # 关键：favorites 列表没被污染
+        fav = client.get("/api/dividend/favorites").json()
+        assert "600000" not in fav["codes"]
+        assert fav["total"] == 0
+
+
 # ========== 部分失败 ==========
 
 
 class TestPartialFailure:
 
     def test_invalid_code_skipped(self, client: TestClient):
-        """1 条 code 非法（abc 非数字）+ 1 条合法 → 非法那条 fail，合法那条 ok"""
+        """1 条 code 非法（abc 非数字）+ 1 条未收藏 + 1 条已收藏 → 只有最后一条 ok"""
+        _add_favorite(client, "600000")
         updates = [
-            _make_update("abc"),     # _normalize_code 会抛 ValueError
-            _make_update("600000"),
+            _make_update("abc"),       # ValueError
+            _make_update("000001"),    # 未收藏 → KeyError
+            _make_update("600000"),    # 已收藏 → ok
         ]
         resp = client.post(BATCH_URL, json={"updates": updates},
                            headers=_token_headers())
         assert resp.status_code == 200
         body = resp.json()
         assert body["success_count"] == 1
-        assert body["fail_count"] == 1
-        # 找到 fail 那条
-        fail = next(r for r in body["results"] if not r["ok"])
-        assert fail["code"] == "abc"
-        assert "格式错误" in fail["error"]
+        assert body["fail_count"] == 2
+
+        # 验证两条失败的原因不同
+        fails = [r for r in body["results"] if not r["ok"]]
+        errors_by_code = {r["code"]: r["error"] for r in fails}
+        assert "格式错误" in errors_by_code["abc"]
+        assert "不在收藏中" in errors_by_code["000001"]
 
 
 # ========== Token 校验 ==========
@@ -215,6 +239,7 @@ class TestDefaults:
 
     def test_enabled_defaults_true(self, client: TestClient):
         """不传 enabled → favorites.json 里 enabled=true"""
+        _add_favorite(client, "600000")
         resp = client.post(BATCH_URL, json={"updates": [_make_update("600000")]},
                            headers=_token_headers())
         assert resp.status_code == 200
@@ -225,6 +250,7 @@ class TestDefaults:
 
     def test_enabled_false_honored(self, client: TestClient):
         """传 enabled=false → 写入 false"""
+        _add_favorite(client, "600000")
         resp = client.post(
             BATCH_URL,
             json={"updates": [_make_update("600000", enabled=False)]},

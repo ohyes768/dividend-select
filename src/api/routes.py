@@ -3476,15 +3476,13 @@ async def batch_set_alerts(
     for item in body.updates:
         try:
             alerts_dict = _alert_batch_item_to_dict(item)
-            # 自动加收藏（幂等）；先 has 再 add，避免对已收藏 code 触发无谓写盘
-            if not favorites_service.has(item.code):
-                favorites_service.add(item.code)
+            # 不自动加收藏：未收藏的 code → update_alerts 抛 KeyError → per-item fail
+            # 让 agent 调用方决定要不要先 POST /favorites/{code} 加收藏
             favorites_service.update_alerts(item.code, alerts_dict)
             results.append(AlertBatchResultItem(code=item.code, ok=True))
         except ValueError as e:
             results.append(AlertBatchResultItem(code=item.code, ok=False, error=str(e)))
         except KeyError as e:
-            # 理论上 unreachable：add() 之后必然在收藏中；保留兜底
             results.append(AlertBatchResultItem(code=item.code, ok=False, error=str(e)))
         except Exception as e:
             logger.exception(f"[batch_set_alerts] code={item.code} unexpected error")
