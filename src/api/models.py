@@ -209,6 +209,8 @@ class M120Stock(BaseModel):
     realtime: Optional[float] = Field(None, description="实时价格")
     realtime_deviation: Optional[float] = Field(None, description="实时价格与M120的偏离度(%)")
     yield_ttm: Optional[float] = Field(None, description="实时股息率TTM(%)")
+    pe: Optional[float] = Field(None, description="静态市盈率(SY1)")
+    pb: Optional[float] = Field(None, description="市净率(SJ)")
 
 
 class M120ListResponse(BaseModel):

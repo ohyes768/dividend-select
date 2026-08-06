@@ -121,7 +121,7 @@ class M120Service(CsvPathService):
         else:
             raise ValueError(f"不支持的股票代码: {code}")
 
-    def _get_realtime_prices_batch(self, codes: list[str]) -> dict[str, float]:
+    def _get_realtime_prices_batch(self, codes: list[str]) -> dict[str, dict]:
         """
         批量获取实时价格（使用 comrms 批量接口）
 
@@ -129,7 +129,8 @@ class M120Service(CsvPathService):
             codes: 股票代码列表
 
         Returns:
-            {股票代码: 实时价格} 字典
+            {股票代码: {"close", "realtime", "pe", "pb"}} 字典
+            pe = 静态市盈率 SY1；pb = 市净率 SJ
         """
         if not codes:
             return {}
@@ -182,9 +183,19 @@ class M120Service(CsvPathService):
         else:
             return {}
 
-        # 解析返回数据，提取昨日收盘价和实时价格
-        # comrms 返回格式: {"C": 股票代码, "N": 名称, "P": 当前价格(实时), "YC": 昨日收盘价, "M": 市场代码, "FS": 完整代码}
-        # 注意: comrms 返回的代码格式可能是 "SH601919" 或 "SZ000651"，需要去掉前缀
+        def _opt_float(val) -> Optional[float]:
+            if val is None or val == "":
+                return None
+            try:
+                f = float(val)
+                if pd.isna(f):
+                    return None
+                return f
+            except (ValueError, TypeError):
+                return None
+
+        # 解析返回数据
+        # comrms 字段: P=现价, YC=昨收, SY1=静态市盈率, SJ=市净率
         result = {}
         for item in items:
             if isinstance(item, dict):
@@ -196,18 +207,14 @@ class M120Service(CsvPathService):
                     code = code[2:]
                 elif code.upper().startswith("SZ"):
                     code = code[2:]
-                # 获取昨日收盘价和实时价格
-                yc_price = item.get("YC")  # 昨日收盘价
-                current_price = item.get("P")  # 当前实时价格
 
                 if code:
-                    try:
-                        result[code] = {
-                            "close": float(yc_price) if yc_price else None,
-                            "realtime": float(current_price) if current_price else None,
-                        }
-                    except (ValueError, TypeError):
-                        pass
+                    result[code] = {
+                        "close": _opt_float(item.get("YC")),
+                        "realtime": _opt_float(item.get("P")),
+                        "pe": _opt_float(item.get("SY1")),  # 静态市盈率
+                        "pb": _opt_float(item.get("SJ")),   # 市净率
+                    }
 
         logger.info(f"comrms 批量获取实时价格: 请求 {len(codes)} 只，成功 {len(result)} 只")
         return result
@@ -308,7 +315,7 @@ class M120Service(CsvPathService):
             logger.warning("实时价格获取失败")
             return 0
 
-        # 保存到 CSV（包含昨日收盘价和实时价格）
+        # 保存到 CSV（昨日收盘 / 实时价格 / 静态PE / 市净率）
         results = []
         date_value = self.date_str if self.date_str else get_current_date_dir()
         for code, price_data in all_prices.items():
@@ -317,6 +324,8 @@ class M120Service(CsvPathService):
                 "股票代码": code,
                 "昨日收盘": price_data.get("close"),
                 "实时价格": price_data.get("realtime"),
+                "静态PE": price_data.get("pe"),
+                "市净率": price_data.get("pb"),
             })
 
         df = pd.DataFrame(results)
@@ -403,7 +412,9 @@ class M120Service(CsvPathService):
         读取 M120 数据，并结合实时价格计算偏离度
 
         Returns:
-            {股票代码: {"m120": float, "close": float, "deviation": float}} 字典
+            {股票代码: {"m120", "close", "realtime", "deviation",
+                       "realtime_deviation", "pe", "pb"}} 字典
+            pe = 静态市盈率；pb = 市净率（来自实时价格 CSV）
         """
 
         # 读取 M120 数据
@@ -434,9 +445,24 @@ class M120Service(CsvPathService):
                         close_val = float(row["收盘价"]) if pd.notna(row.get("收盘价")) else None
                         realtime_val = None
 
+                    pe_val = None
+                    pb_val = None
+                    if "静态PE" in price_df.columns and pd.notna(row.get("静态PE")):
+                        try:
+                            pe_val = float(row["静态PE"])
+                        except (ValueError, TypeError):
+                            pe_val = None
+                    if "市净率" in price_df.columns and pd.notna(row.get("市净率")):
+                        try:
+                            pb_val = float(row["市净率"])
+                        except (ValueError, TypeError):
+                            pb_val = None
+
                     price_dict[code] = {
                         "close": close_val,
                         "realtime": realtime_val,
+                        "pe": pe_val,
+                        "pb": pb_val,
                     }
             except Exception as e:
                 logger.error(f"读取实时价格数据失败: {e}")
@@ -470,6 +496,8 @@ class M120Service(CsvPathService):
                 "realtime": round(realtime, 2),
                 "deviation": round(deviation, 2),
                 "realtime_deviation": round(realtime_deviation, 2),
+                "pe": price_data.get("pe"),
+                "pb": price_data.get("pb"),
             }
 
         return result

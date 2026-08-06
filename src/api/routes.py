@@ -629,6 +629,8 @@ async def get_m120_stocks(
             realtime=realtime_price,
             realtime_deviation=m120_info.get("realtime_deviation"),
             yield_ttm=yield_ttm,
+            pe=m120_info.get("pe"),
+            pb=m120_info.get("pb"),
         ))
 
     # 获取 M120 文件最后修改时间

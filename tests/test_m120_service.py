@@ -15,6 +15,10 @@ class TestM120Service:
 
         assert len(result) > 0, "应该返回至少一只股票的价格"
         assert "600519" in result or any("600519" in k for k in result.keys()), f"应该包含 600519，当前结果: {result}"
+        sample = next(iter(result.values()))
+        assert isinstance(sample, dict), "每条应为 dict"
+        assert "realtime" in sample and "close" in sample
+        assert "pe" in sample and "pb" in sample
 
     def test_get_realtime_prices_batch_multiple(self):
         """测试批量获取多个股票的实时价格"""
