@@ -1,11 +1,13 @@
 """
 API 路由定义
 """
+import os
+import secrets
 from datetime import datetime
 from typing import Optional
 
 import pandas as pd
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 
 from src.api.models import (
     BoardInfo,
@@ -22,6 +24,10 @@ from src.api.models import (
     AlertStatusItem,
     AlertStatusResponse,
     AlertCheckResult,
+    AlertBatchRequest,
+    AlertBatchResponse,
+    AlertBatchResultItem,
+    AlertBatchUpdateItem,
     HealthResponse,
     M120ListResponse,
     M120Stock,
@@ -3411,3 +3417,81 @@ async def manually_check_alerts():
 
     result = alert_service.check_all()
     return AlertCheckResult(**result)
+
+
+# ========== Batch API（外部 agent 入口） ==========
+
+
+async def verify_agent_token(x_api_token: Optional[str] = Header(None, alias="X-API-Token")):
+    """
+    Agent API token 校验依赖。
+
+    - 服务端未配置 AGENT_API_TOKEN 环境变量 → 503
+    - 缺/错 token → 401（统一处理，避免 Header 必填时 FastAPI 直接返回 422）
+    - 用 secrets.compare_digest 防 timing attack
+    """
+    expected = os.getenv("AGENT_API_TOKEN", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="服务端未配置 AGENT_API_TOKEN")
+    if not x_api_token or not secrets.compare_digest(x_api_token, expected):
+        raise HTTPException(status_code=401, detail="invalid or missing X-API-Token")
+
+
+def _alert_batch_item_to_dict(item: AlertBatchUpdateItem) -> dict:
+    """batch 单条 → favorites.json alerts dict（schema 对齐现有 _alert_config_to_dict 输出）"""
+    levels_dict: dict[str, dict] = {}
+    for key in ("heavy_position", "add_position", "reduce_position", "full_exit"):
+        lv: AlertLevel = getattr(item.levels, key)
+        d: dict = {"price": float(lv.price)}
+        if lv.pe is not None:
+            d["pe"] = float(lv.pe)
+        if lv.pb is not None:
+            d["pb"] = float(lv.pb)
+        levels_dict[key] = d
+    return {
+        "enabled": bool(item.enabled),
+        "updated_at": datetime.now().isoformat(),
+        "levels": levels_dict,
+    }
+
+
+@router.post("/favorites/alerts/batch", response_model=AlertBatchResponse)
+async def batch_set_alerts(
+    body: AlertBatchRequest,
+    _: None = Depends(verify_agent_token),
+):
+    """
+    批量设置挡位监控（外部 agent 入口，需 X-API-Token 校验）
+
+    - 一次最多 100 条；每条独立处理，部分失败不影响其他
+    - 未收藏的 code 自动加入 favorites 再设挡位
+    - 4 档 price 必填 > 0；pe/pb 选填；enabled 选填（默认 true）
+
+    请求体见 prd.md；响应 AlertBatchResponse（HTTP 200 即使部分失败）。
+    """
+    if favorites_service is None:
+        raise HTTPException(status_code=500, detail="收藏服务未初始化")
+
+    results: list[AlertBatchResultItem] = []
+    for item in body.updates:
+        try:
+            alerts_dict = _alert_batch_item_to_dict(item)
+            # 自动加收藏（幂等）；先 has 再 add，避免对已收藏 code 触发无谓写盘
+            if not favorites_service.has(item.code):
+                favorites_service.add(item.code)
+            favorites_service.update_alerts(item.code, alerts_dict)
+            results.append(AlertBatchResultItem(code=item.code, ok=True))
+        except ValueError as e:
+            results.append(AlertBatchResultItem(code=item.code, ok=False, error=str(e)))
+        except KeyError as e:
+            # 理论上 unreachable：add() 之后必然在收藏中；保留兜底
+            results.append(AlertBatchResultItem(code=item.code, ok=False, error=str(e)))
+        except Exception as e:
+            logger.exception(f"[batch_set_alerts] code={item.code} unexpected error")
+            results.append(AlertBatchResultItem(code=item.code, ok=False, error=f"unexpected: {e}"))
+
+    return AlertBatchResponse(
+        results=results,
+        success_count=sum(1 for r in results if r.ok),
+        fail_count=sum(1 for r in results if not r.ok),
+    )

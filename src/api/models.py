@@ -467,3 +467,44 @@ class AlertCheckResult(BaseModel):
     triggered: list[dict] = Field(default_factory=list)
     pushed: bool
     push_error: Optional[str] = None
+
+
+# ========== Batch API 模型（外部 agent 入口） ==========
+
+
+class AlertBatchLevelsInput(BaseModel):
+    """batch 4 档输入：每档全必填（vs AlertLevels 全 Optional）
+
+    复用 AlertLevel（price>0 必填，pe/pb 选填）作为字段类型；
+    与 AlertLevels 的差异是：每档不可缺省（agent 必须传 4 档完整价格）
+    """
+    heavy_position: AlertLevel
+    add_position: AlertLevel
+    reduce_position: AlertLevel
+    full_exit: AlertLevel
+
+
+class AlertBatchUpdateItem(BaseModel):
+    """batch 单条：code + 4 档 levels + enabled 默认 true"""
+    code: str = Field(..., min_length=1, max_length=6, description="6 位股票代码")
+    levels: AlertBatchLevelsInput
+    enabled: bool = Field(True, description="是否启用监控，默认 true")
+
+
+class AlertBatchRequest(BaseModel):
+    """batch 请求体：updates 数组，1-100 条"""
+    updates: list[AlertBatchUpdateItem] = Field(..., min_length=1, max_length=100)
+
+
+class AlertBatchResultItem(BaseModel):
+    """batch 单条结果"""
+    code: str
+    ok: bool
+    error: Optional[str] = None
+
+
+class AlertBatchResponse(BaseModel):
+    """batch 响应：per-stock 结果列表 + 统计"""
+    results: list[AlertBatchResultItem]
+    success_count: int
+    fail_count: int
